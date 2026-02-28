@@ -1,0 +1,39 @@
+version: '3'
+
+services:
+  devcontainer-gpu:
+    profiles: ["gpu"]
+    build:
+      context: ..
+      dockerfile: .devcontainer/Dockerfile
+      args:
+        BASE_IMAGE: pytorch/pytorch:2.3.1-cuda12.1-cudnn9-devel
+    # # uncomment to use env file
+    # env_file:
+    #   - .env
+    runtime: nvidia
+    shm_size: '12gb'
+    # make sure all the available GPUs are passed to the container
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - DEVICE=cuda
+    volumes:
+      # Uncomment to forward the local Docker socket to the container.
+      #- /var/run/docker.sock:/var/run/docker-host.sock
+      # Update this to wherever you want VS Code to mount the folder of your project
+      - ..:/workspace:cached
+    command: sleep infinity
+
+
+devcontainer-cpu:
+    profiles: ["cpu"]
+    build:
+      context: ..
+      dockerfile: .devcontainer/Dockerfile
+      args:
+        BASE_IMAGE: pytorch/pytorch:2.3.1-cpu
+    volumes:
+      - ..:/workspace:cached
+    command: sleep infinity
+    environment:
+      - DEVICE=cpu

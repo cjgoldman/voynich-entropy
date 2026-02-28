@@ -1,9 +1,10 @@
 // For format details, see https://aka.ms/devcontainer.json. For config options, see the README at:
 // https://github.com/microsoft/vscode-dev-containers/tree/v0.245.2/containers/python-3
 {
-	"name": "INSERT PROJ NAME",
+	"name": "Voynich Entropy GPU",
 	"dockerComposeFile": "../docker-compose.yaml",
 	"service": "devcontainer-gpu",
+	"runServices": ["devcontainer-gpu"],
 	"workspaceFolder": "/workspace",
 // Use this environment variable if you need to bind mount your local source code into a new container.
 	"remoteEnv": {

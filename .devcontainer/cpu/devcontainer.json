@@ -1,9 +1,10 @@
 // For format details, see https://aka.ms/devcontainer.json. For config options, see the README at:
 // https://github.com/microsoft/vscode-dev-containers/tree/v0.245.2/containers/python-3
 {
-	"name": "INSERT PROJ NAME",
-	"dockerComposeFile": "docker-compose.yaml",
+	"name": "Voynich Entropy CPU",
+	"dockerComposeFile": "../docker-compose.yaml",
 	"service": "devcontainer-cpu",
+	"runServices": ["devcontainer-cpu"],
 	"workspaceFolder": "/workspace",
 // Use this environment variable if you need to bind mount your local source code into a new container.
 	"remoteEnv": {
@@ -26,13 +27,6 @@
 			"username":"vscode",
 			"userUid":1000,
 			"userGid":1000
-		},
-		"ghcr.io/devcontainers/features/python:1": {
-			"version":"3.11",
-			"installTools":false
-		},
-		"./features/pip-requirements": {
-			"requirementsFile": "/tmp/pip-req/requirements.txt"
 		},
 		"ghcr.io/iterative/features/nvtop:1": {}
 	},

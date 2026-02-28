@@ -1,0 +1,8 @@
+data
+lightning_logs
+wandb
+checkpoints
+__MACOSX
+
+# all checcpoint files
+*.ckpt

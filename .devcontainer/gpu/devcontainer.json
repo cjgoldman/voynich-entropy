@@ -1,0 +1,84 @@
+// For format details, see https://aka.ms/devcontainer.json. For config options, see the README at:
+// https://github.com/microsoft/vscode-dev-containers/tree/v0.245.2/containers/python-3
+{
+	"name": "INSERT PROJ NAME",
+	"dockerComposeFile": "../docker-compose.yaml",
+	"service": "devcontainer-gpu",
+	"workspaceFolder": "/workspace",
+// Use this environment variable if you need to bind mount your local source code into a new container.
+	"remoteEnv": {
+		"LOCAL_WORKSPACE_FOLDER": "${localWorkspaceFolder}",
+		"GIT_AUTHOR_EMAIL": "${localEnv:GIT_AUTHOR_EMAIL}",
+		"GIT_AUTHOR_NAME": "${localEnv:GIT_AUTHOR_NAME}",
+		"GITHUB_TOKEN": "${localEnv:GITHUB_TOKEN}",
+		"WANDB_API_KEY":"${localEnv:WANDB_API_KEY}"
+	},
+
+	// mount the data folder into the workspace
+	// "mounts": [
+	// 	"source=/mnt/cephfs/storage/NCAI-ssd/datapool/imagery,target=/workspace/data,type=bind,consistency=cached"
+	// ],
+
+	// Set up the features for the dev container
+	"features": {
+		"ghcr.io/devcontainers/features/common-utils:2": {
+			"configureZshAsDefaultShell":true,
+			"username":"vscode",
+			"userUid":1000,
+			"userGid":1000
+		},
+		"ghcr.io/iterative/features/nvtop:1": {}
+	},
+
+	// Configure tool-specific properties.
+	"customizations": {
+		// Configure properties specific to VS Code.
+		"vscode": {
+			// Set *default* container specific settings.json values on container create.
+			"settings": { 
+				"python.defaultInterpreterPath": "/usr/local/bin/python",
+				"python.linting.enabled": true,
+				"python.linting.pylintEnabled": false,
+				"python.formatting.autopep8Path": "/usr/local/py-utils/bin/autopep8",
+				"python.formatting.blackPath": "/usr/local/py-utils/bin/black",
+				"python.formatting.yapfPath": "/usr/local/py-utils/bin/yapf",
+				"python.linting.banditPath": "/usr/local/py-utils/bin/bandit",
+				"python.linting.flake8Path": "/usr/local/py-utils/bin/flake8",
+				"python.linting.mypyPath": "/usr/local/py-utils/bin/mypy",
+				"python.linting.pycodestylePath": "/usr/local/py-utils/bin/pycodestyle",
+				"python.linting.pydocstylePath": "/usr/local/py-utils/bin/pydocstyle",
+				"python.linting.pylintPath": "/usr/local/py-utils/bin/pylint",
+				"python.analysis.extraPaths": [
+					"/workspace",
+					"/workspace/src"
+				]
+				// Modify PYTHONPATH to add current folder
+				//"terminal.integrated.env.linux": {"PYTHONPATH": "${workspaceFolder}, ${workspaceFolder}/src"}
+			},
+			
+			// Add the IDs of extensions you want installed when the container is created.
+			"extensions": [
+				"ms-python.python",
+				"ms-python.vscode-pylance",
+				"streetsidesoftware.code-spell-checker",
+				"github.copilot",
+				"GitHub.vscode-pull-request-github",
+				"ms-vsliveshare.vsliveshare",
+				"charliermarsh.ruff",
+				"ms-toolsai.jupyter",
+				"mohsen1.prettify-json",
+				"ms-toolsai.vscode-jupyter-powertoys",
+				"ms-toolsai.jupyter-keymap",
+				"ms-toolsai.datawrangler"
+			]
+		}
+	},
+	// Use 'forwardPorts' to make a list of ports inside the container available locally.
+	// "forwardPorts": [],
+
+	
+	// run the `.devcontainer/post-create-command.sh` script
+	"postCreateCommand": "bash /workspace/.devcontainer/post-create.sh",
+	// Comment out to connect as root instead. More info: https://aka.ms/vscode-remote/containers/non-root.
+    "remoteUser": "vscode"
+}

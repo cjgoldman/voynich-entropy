@@ -1,0 +1,19 @@
+{
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(brew install:*)",
+      "Bash(git -C /workspaces status)",
+      "WebFetch(domain:omnifocus.com)",
+      "WebSearch",
+      "WebFetch(domain:omni-automation.com)",
+      "Bash(curl:*)",
+      "WebFetch(domain:192.168.1.228)"
+    ]
+  },
+  "enabledPlugins": {
+    "feature-dev@claude-plugins-official": true
+  }
+}

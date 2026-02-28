@@ -2,12 +2,11 @@ version: '3'
 
 services:
   devcontainer-gpu:
-    profiles: ["gpu"]
     build:
       context: ..
       dockerfile: .devcontainer/Dockerfile
       args:
-        BASE_IMAGE: pytorch/pytorch:2.3.1-cuda12.1-cudnn9-devel
+        BASE_IMAGE: pytorch/pytorch:2.10.0-cuda13.0-cudnn9-devel
     # # uncomment to use env file
     # env_file:
     #   - .env
@@ -25,13 +24,12 @@ services:
     command: sleep infinity
 
 
-devcontainer-cpu:
-    profiles: ["cpu"]
+  devcontainer-cpu:
     build:
       context: ..
       dockerfile: .devcontainer/Dockerfile
       args:
-        BASE_IMAGE: pytorch/pytorch:2.3.1-cpu
+        BASE_IMAGE: python:3.12
     volumes:
       - ..:/workspace:cached
     command: sleep infinity

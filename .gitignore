@@ -6,3 +6,6 @@ __MACOSX
 
 # all checcpoint files
 *.ckpt
+
+# devcontainer env file
+.devcontainer/.env

@@ -1,0 +1,8 @@
+LICENSE
+README.md
+pyproject.toml
+voynich_entropy.egg-info/PKG-INFO
+voynich_entropy.egg-info/SOURCES.txt
+voynich_entropy.egg-info/dependency_links.txt
+voynich_entropy.egg-info/requires.txt
+voynich_entropy.egg-info/top_level.txt

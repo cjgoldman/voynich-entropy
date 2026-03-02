@@ -9,3 +9,6 @@ __MACOSX
 
 # devcontainer env file
 .devcontainer/.env
+
+# Python virtual environment
+.venv/

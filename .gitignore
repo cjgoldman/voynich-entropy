@@ -12,3 +12,6 @@ __MACOSX
 
 # Python virtual environment
 .venv/
+
+# Python build artifacts
+*.egg-info/

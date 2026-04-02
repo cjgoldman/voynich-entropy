@@ -2,10 +2,20 @@
 Voynich Unicode font rendering utilities for Jupyter notebooks.
 
 Usage:
-    from voy_font import load_voynich_font, voynich_style, voynich_df
+    from voy_font import load_voynich_font, voynich_style, voynich_df, voynich_text, voyn_print
 
     # Load the font (call once per notebook)
     load_voynich_font()
+
+    # Display a Unicode string in Voynich font
+    voynich_text("𰑀𰒁𰑂")
+
+    # Display a list of strings (e.g. from vms_uprep.prepare())
+    voynich_text(lines)
+
+    # Print any type directly
+    voyn_print("𰑀𰒁𰑂")
+    voyn_print(df)
 
     # Style a dataframe inline
     voynich_style(df.head())
@@ -19,6 +29,7 @@ Usage:
 """
 
 import base64
+import html as _html
 from pathlib import Path
 from IPython.display import HTML, display
 import pandas as pd
@@ -51,12 +62,58 @@ def load_voynich_font(font_path: Path | str | None = None):
     _FONT_LOADED = True
 
 
+def voynich_text(
+    text: str | list[str],
+    font_size: str = _DEFAULT_FONT_SIZE,
+    line_break: bool = True,
+):
+    """Display a Unicode string (or list of strings) rendered in Voynich Unicode font.
+
+    Args:
+        text: A single string or list of strings (e.g. output of prepare()).
+        font_size: CSS font size.
+        line_break: If True, each list item is rendered on its own line.
+
+    Returns:
+        An IPython HTML object for notebook display.
+    """
+    load_voynich_font()
+    if isinstance(text, list):
+        sep = "<br>" if line_break else " "
+        body = sep.join(_html.escape(s) for s in text)
+    else:
+        body = _html.escape(text)
+    return HTML(
+        f'<div style="font-family: VoynichUnicode; font-size: {font_size}; '
+        f'line-height: 1.6;">{body}</div>'
+    )
+
+
 def voynich_style(df: pd.DataFrame, font_size: str = _DEFAULT_FONT_SIZE):
     """Return a Styler that renders the dataframe in Voynich Unicode font."""
     load_voynich_font()
     return df.style.set_table_attributes(
         f'style="font-family: VoynichUnicode; font-size: {font_size};"'
     )
+
+
+def voyn_print(
+    data: str | list[str] | pd.DataFrame,
+    font_size: str = _DEFAULT_FONT_SIZE,
+    **kwargs,
+):
+    """Display a string, list of strings, or DataFrame rendered in Voynich Unicode font.
+
+    Args:
+        data: A string, list of strings, or pandas DataFrame.
+        font_size: CSS font size.
+        **kwargs: Passed to voynich_text (e.g. line_break) when data is a string.
+    """
+    load_voynich_font()
+    if isinstance(data, pd.DataFrame):
+        display(voynich_style(data, font_size))
+    else:
+        display(voynich_text(data, font_size, **kwargs))
 
 
 def voynich_df(cls):

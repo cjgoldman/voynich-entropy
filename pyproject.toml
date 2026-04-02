@@ -13,6 +13,8 @@ dependencies = [
     "ipython>=8.0",
     "jupyter>=1.0",
     "ipykernel>=6.0",
+    "rich>=14.0.0",
+    "plotext>=5.0",
 ]
 
 [dependency-groups]
@@ -40,6 +42,8 @@ gpu = [
     "typer>=0.15.3",
     "viztracer>=1.0.3",
     "wandb>=0.19.10",
+    "plotext>=5.0",
+    "safetensors>=0.4.0",
 ]
 dev = [
     "black==24.8.0",

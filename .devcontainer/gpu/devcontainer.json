@@ -12,7 +12,9 @@
 		"GIT_AUTHOR_EMAIL": "${localEnv:GIT_AUTHOR_EMAIL}",
 		"GIT_AUTHOR_NAME": "${localEnv:GIT_AUTHOR_NAME}",
 		"GITHUB_TOKEN": "${localEnv:GITHUB_TOKEN}",
-		"WANDB_API_KEY":"${localEnv:WANDB_API_KEY}"
+		"WANDB_API_KEY":"${localEnv:WANDB_API_KEY}",
+		"HF_TOKEN":"${localEnv:HF_TOKEN}",
+		"HF_HOME": "/workspace/data/hf-models"
 	},
 
 	// mount the data folder into the workspace
@@ -37,7 +39,7 @@
 		"vscode": {
 			// Set *default* container specific settings.json values on container create.
 			"settings": { 
-				"python.defaultInterpreterPath": "/usr/bin/python",
+				"python.defaultInterpreterPath": "/workspace/.venv/bin/python",
 				"python.linting.enabled": true,
 				"python.linting.pylintEnabled": false,
 				"python.formatting.autopep8Path": "/usr/local/py-utils/bin/autopep8",
@@ -51,10 +53,12 @@
 				"python.linting.pylintPath": "/usr/local/py-utils/bin/pylint",
 				"python.analysis.extraPaths": [
 					"/workspace",
-					"/workspace/src"
-				]
-				// Modify PYTHONPATH to add current folder
-				//"terminal.integrated.env.linux": {"PYTHONPATH": "${workspaceFolder}, ${workspaceFolder}/src"}
+					"/workspace/voynich-attack",
+					"/workspace/blt"
+				],
+				"terminal.integrated.env.linux": {
+					"PATH": "/workspace/.venv/bin:${env:PATH}"
+				}
 			},
 			
 			// Add the IDs of extensions you want installed when the container is created.

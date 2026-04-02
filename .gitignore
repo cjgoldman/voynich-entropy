@@ -15,3 +15,9 @@ __MACOSX
 
 # Python build artifacts
 *.egg-info/
+dist/
+build/
+*.egg
+__pycache__/
+*.pyc
+*.pyo

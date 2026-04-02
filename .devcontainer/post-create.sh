@@ -30,7 +30,8 @@ if [ "$DEVICE" = "cuda" ]; then
 else
     # Install base deps only
     uv sync
-    # Make voynich-attack importable
+    # Make submodules importable (deps already resolved by root)
+    uv pip install -e ./blt --no-deps
     uv pip install -e ./voynich-attack --no-deps
 fi
 

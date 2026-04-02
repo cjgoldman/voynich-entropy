@@ -1,0 +1,31 @@
+{
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(brew install:*)",
+      "Bash(git checkout:*)",
+      "Bash(git add:*)",
+      "Bash(git submodule:*)",
+      "Bash(git -C /workspaces status)",
+      "WebFetch(domain:omnifocus.com)",
+      "WebSearch",
+      "WebFetch(domain:omni-automation.com)",
+      "Bash(curl:*)",
+      "WebFetch(domain:192.168.1.228)",
+      "Bash(uv pip:*)",
+      "Bash(python:*)",
+      "Bash(find /workspace/blt -type f -name download*.py -o -name *weight*)",
+      "Bash(find /workspace/blt -type d -name *constants* -o -name constants.py)",
+      "Bash(pip install:*)",
+      "Bash(uv run:*)",
+      "Bash(huggingface-cli whoami:*)",
+      "Bash(pip show:*)",
+      "Bash(grep -E \"\\\\.py$|model\")"
+    ]
+  },
+  "enabledPlugins": {
+    "feature-dev@claude-plugins-official": true
+  }
+}

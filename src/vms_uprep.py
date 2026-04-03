@@ -165,3 +165,29 @@ def prepare(df, range_spec=None, max_bytes=DEFAULT_MAX_BYTES):
     lines = _build_output(sliced, token_cols)
     _check_byte_length(lines, max_bytes)
     return lines
+
+def stack_lines(lines, max_bytes=DEFAULT_MAX_BYTES):
+    """Stack a list of line strings into a single string with separators.
+
+    Args:
+        lines: List of line strings (e.g. output of prepare()).
+        max_bytes: Maximum total UTF-8 byte length (default 8192).
+
+    Returns:
+        A list of strings where each sting is a stack of lines up to the byte limit.
+    Raises:
+        ValueError: If the byte limit is exceeded.
+    """
+    stacked = []
+    current_stack = ""
+    for line in lines:
+        candidate_stack = current_stack + line
+        if len(candidate_stack.encode("utf-8")) > max_bytes:
+            if current_stack:
+                stacked.append(current_stack)
+            current_stack = line
+        else:
+            current_stack = candidate_stack
+    if current_stack:
+        stacked.append(current_stack)
+    return stacked

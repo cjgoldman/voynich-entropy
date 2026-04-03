@@ -11,7 +11,13 @@ Usage:
     # All-in-one display (table + summary + plot)
     display_entropy(text, token_ids, entropy_values)
 
-    # Or individually
+    # Just the table (no plot)
+    display_entropy(text, token_ids, entropy_values, show_plot=False)
+
+    # Just the plot (no table)
+    display_entropy(text, token_ids, entropy_values, show_table=False, show_summary=False)
+
+    # Or call individual components directly
     display_entropy_table(text, token_ids, entropy_values)
     display_entropy_plot(entropy_values)
 """
@@ -20,9 +26,18 @@ import html as _html
 from IPython.display import HTML, display
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
+import matplotlib.font_manager as fm
 import numpy as np
+from pathlib import Path
 
 from voy_font import load_voynich_font
+
+# Load Voynich TTF for matplotlib rendering
+_VOYNICH_TTF = Path(__file__).resolve().parent.parent / "voynich_fonts/Voynich/CustomVoynichUnicode.ttf"
+_VOYNICH_FONT_PROP = None
+if _VOYNICH_TTF.exists():
+    fm.fontManager.addfont(str(_VOYNICH_TTF))
+    _VOYNICH_FONT_PROP = fm.FontProperties(fname=str(_VOYNICH_TTF))
 
 # ==============================================================================
 # Color helpers
@@ -342,8 +357,9 @@ def display_entropy_plot(
     entropy_values,
     *,
     text=None,
-    figsize=(12, 3),
-    dpi=100,
+    figsize=None,
+    dpi=200,
+    glyphs_per_inch=4,
 ):
     """Display a matplotlib line plot of per-byte entropy.
 
@@ -353,12 +369,20 @@ def display_entropy_plot(
               labels are placed on the x-axis.  Non-ASCII characters (including
               Voynich PUA glyphs) are shown as "·" since matplotlib cannot use
               the CSS-injected Voynich font.
-        figsize: Matplotlib figure size tuple.
+        figsize: Matplotlib figure size tuple.  If None, the width is computed
+                 automatically so that there are roughly *glyphs_per_inch*
+                 glyphs per horizontal inch.
         dpi: Figure DPI.
+        glyphs_per_inch: Target glyph density when figsize is auto-computed.
 
     Returns:
         The matplotlib Figure.
     """
+    if figsize is None:
+        n_glyphs = len(text) if text else len(entropy_values)
+        width = max(4.0, n_glyphs / glyphs_per_inch)
+        figsize = (width, 3)
+
     if not entropy_values:
         fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
         ax.text(0.5, 0.5, "No data", ha="center", va="center", transform=ax.transAxes)
@@ -372,6 +396,26 @@ def display_entropy_plot(
         max_e = min_e + 1.0  # avoid degenerate normalizer
 
     fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
+
+    # Alternating glyph-group bands (mirrors the table's band styling)
+    _SPACE_CHARS = {' ', '\t'}
+    _LINE_SEP_CHARS = {'\n', '\r', '\u2028', '\u2029'}
+    _PILCROW_CHARS = {'\u00b6'}
+    if text:
+        glyph_groups = _build_glyph_groups(text)
+        for group_idx, (ch, start, n_bytes) in enumerate(glyph_groups):
+            x0 = start - 0.5
+            x1 = start + n_bytes - 0.5
+            if ch in _SPACE_CHARS:
+                ax.axvspan(x0, x1, color="#22c55e", alpha=0.12, zorder=0)
+            elif ch in _LINE_SEP_CHARS:
+                ax.axvspan(x0, x1, color="#3b82f6", alpha=0.12, zorder=0)
+            elif ch in _PILCROW_CHARS:
+                ax.axvspan(x0, x1, color="#a855f7", alpha=0.12, zorder=0)
+            elif group_idx % 2 == 0:
+                ax.axvspan(x0, x1, color="#94a3b8", alpha=0.25, zorder=0)
+            else:
+                ax.axvspan(x0, x1, color="#1e293b", alpha=0.25, zorder=0)
 
     # Color each segment by entropy
     cmap = mcolors.LinearSegmentedColormap.from_list(
@@ -392,23 +436,37 @@ def display_entropy_plot(
     # Scatter points
     ax.scatter(positions, values, c=values, cmap=cmap, norm=norm, s=12, zorder=5)
 
-    # Character labels on x-axis if text provided.
-    # Voynich PUA glyphs won't render in matplotlib (no system font), so
-    # we substitute "·" for non-ASCII characters.
+    # Legend for glyph band colors
+    legend_handles = []
     if text:
-        byte_map = _build_byte_char_map(text)
+        import matplotlib.patches as mpatches
+        # Only add entries for band types that actually appear
+        chars_in_text = set(text)
+        if chars_in_text & _SPACE_CHARS:
+            legend_handles.append(mpatches.Patch(color="#22c55e", alpha=0.3, label="Space / Tab"))
+        if chars_in_text & _LINE_SEP_CHARS:
+            legend_handles.append(mpatches.Patch(color="#3b82f6", alpha=0.3, label="Line Break"))
+        if chars_in_text & _PILCROW_CHARS:
+            legend_handles.append(mpatches.Patch(color="#a855f7", alpha=0.3, label="Paragraph (¶)"))
+    if legend_handles:
+        ax.legend(handles=legend_handles, loc="upper right", fontsize=7, framealpha=0.7)
+
+    # Character labels on x-axis using the Voynich TTF font
+    if text and _VOYNICH_FONT_PROP is not None:
+        glyph_groups_for_ticks = _build_glyph_groups(text)
         tick_positions = []
         tick_labels = []
-        for pos in range(len(entropy_values)):
-            if pos in byte_map and byte_map[pos] is not None:
-                ch = byte_map[pos]
-                tick_positions.append(pos)
-                tick_labels.append(ch if ord(ch) < 128 else "·")
-        if len(tick_positions) <= 80:
-            ax.set_xticks(tick_positions)
-            ax.set_xticklabels(tick_labels, fontsize=7, rotation=0)
-        else:
-            ax.set_xlabel("Byte Position")
+        for ch, start, n_bytes in glyph_groups_for_ticks:
+            center = start + (n_bytes - 1) / 2.0
+            tick_positions.append(center)
+            tick_labels.append(ch)
+        ax.set_xticks(tick_positions)
+        ax.set_xticklabels(tick_labels, rotation=0, fontsize=7)
+        for label in ax.get_xticklabels():
+            ch = label.get_text()
+            if ch and len(ch) == 1 and 0xE000 <= ord(ch) <= 0xF8FF:
+                label.set_fontproperties(_VOYNICH_FONT_PROP)
+                label.set_fontsize(12)
     else:
         ax.set_xlabel("Byte Position")
 
@@ -424,17 +482,21 @@ def display_entropy_plot(
 # All-in-one display
 # ==============================================================================
 
-def display_entropy(text, token_ids, entropy_values, *, show_plot=True, **kwargs):
+def display_entropy(text, token_ids, entropy_values, *, show_table=True, show_summary=True, show_plot=True, **kwargs):
     """Display the full entropy analysis: table, summary, and optional plot.
 
     Args:
         text: Source Unicode string.
         token_ids: List of raw byte values (0-255).
         entropy_values: List of float entropy values, one per byte.
-        show_plot: If True, also show a matplotlib line plot.
+        show_table: If True, show the per-byte entropy table.
+        show_summary: If True, show summary statistics.
+        show_plot: If True, show a matplotlib line plot.
         **kwargs: Passed through to display_entropy_table.
     """
-    display_entropy_table(text, token_ids, entropy_values, **kwargs)
-    display_entropy_summary(entropy_values)
+    if show_table:
+        display_entropy_table(text, token_ids, entropy_values, **kwargs)
+    if show_summary:
+        display_entropy_summary(entropy_values)
     if show_plot:
         display_entropy_plot(entropy_values, text=text)

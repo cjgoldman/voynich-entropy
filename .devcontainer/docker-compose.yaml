@@ -11,8 +11,11 @@ services:
       - .env
     runtime: nvidia
     shm_size: '12gb'
-    # make sure all the available GPUs are passed to the container
+    devices:
+    # mapping nvidia-caps prevents random GPU loss - make sure `nvidia-smi -pm 1` or daemon is running 
+      - /dev/nvidia-caps:/dev/nvidia-caps 
     environment:
+    # make sure all the available GPUs are passed to the container
       - NVIDIA_VISIBLE_DEVICES=all
       - DEVICE=cuda
     volumes:

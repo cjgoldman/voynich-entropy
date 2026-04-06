@@ -36,20 +36,32 @@ import pandas as pd
 
 _FONT_DIR = Path(__file__).resolve().parent.parent / "voynich_fonts/Voynich"
 _FONT_PATH = _FONT_DIR / "VoynichUnicode.ttf"
+_CUSTOM_FONT_PATH = _FONT_DIR / "BMPVoynichUnicode.ttf"
 _DEFAULT_FONT_SIZE = "18px"
-_FONT_LOADED = False
+_FONTS_LOADED: set[str] = set()
 
 
-def load_voynich_font(font_path: Path | str | None = None):
+def load_voynich_font(font_path: Path | str | None = None, *, custom: bool = True):
     """Load the Voynich Unicode font into the notebook via embedded base64 CSS.
 
-    Call once per notebook session. Subsequent calls are no-ops.
+    Call once per notebook session. Subsequent calls for the same font are no-ops.
+
+    Args:
+        font_path: Explicit path to a .ttf file. Overrides the custom flag.
+        custom: If True (default), load BMPVoynichUnicode.ttf (BMP PUA).
+                If False, load the original VoynichUnicode.ttf.
     """
-    global _FONT_LOADED
-    if _FONT_LOADED:
+    if font_path:
+        path = Path(font_path)
+    elif custom:
+        path = _CUSTOM_FONT_PATH
+    else:
+        path = _FONT_PATH
+
+    key = str(path)
+    if key in _FONTS_LOADED:
         return
 
-    path = Path(font_path) if font_path else _FONT_PATH
     font_b64 = base64.b64encode(path.read_bytes()).decode()
     display(HTML(
         "<style>"
@@ -59,7 +71,7 @@ def load_voynich_font(font_path: Path | str | None = None):
         "}"
         "</style>"
     ))
-    _FONT_LOADED = True
+    _FONTS_LOADED.add(key)
 
 
 def voynich_text(

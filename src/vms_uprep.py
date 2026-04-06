@@ -21,6 +21,13 @@ Usage:
 import warnings
 import pandas as pd
 
+from vms_annot import (
+    AnnotatedChunk,
+    AnnotatedLine,
+    GlyphAnnotation,
+    SegmentKind,
+)
+
 # ==============================================================================
 # Constants
 # ==============================================================================
@@ -138,6 +145,85 @@ def _check_byte_length(lines, max_bytes):
 
 
 # ==============================================================================
+# Annotated helpers
+# ==============================================================================
+
+def _make_ann(kind, char, **kwargs):
+    """Shorthand for creating a GlyphAnnotation."""
+    return GlyphAnnotation(kind=kind, char=char, **kwargs)
+
+
+def _row_to_annotated_line(row, token_cols, folio, par, line):
+    """Convert a dataframe row into text + parallel GlyphAnnotation list.
+
+    Mirrors _row_to_line() exactly but builds annotations per character.
+    """
+    text_parts = []
+    annotations = []
+    token_idx = 0
+    for col in token_cols:
+        cell = row[col]
+        if pd.isna(cell) or cell == NULL_TOKEN:
+            continue
+        word = cell.replace(",", "")
+        if text_parts:
+            text_parts.append(" ")
+            annotations.append(_make_ann(SegmentKind.SPACE, " "))
+        for ch in word:
+            text_parts.append(ch)
+            annotations.append(_make_ann(
+                SegmentKind.GLYPH, ch,
+                folio=folio, par=par, line=line, token_pos=token_idx,
+            ))
+        token_idx += 1
+    return "".join(text_parts), annotations
+
+
+def _build_annotated_output(sliced_df, token_cols):
+    """Build AnnotatedLine objects from a dataframe slice.
+
+    Mirrors _build_output() but returns AnnotatedLine instead of plain strings.
+    """
+    output = []
+    for (_folio, _par), group in sliced_df.groupby(["folio", "par"], sort=False):
+        rows = list(group.iterrows())
+        last_idx = len(rows) - 1
+        for i, (_row_idx, row) in enumerate(rows):
+            folio = row["folio"]
+            par = int(row["par"])
+            ln = int(row["line"])
+            content, anns = _row_to_annotated_line(row, token_cols, folio, par, ln)
+            is_first = i == 0
+            is_last = i == last_idx
+
+            text = ""
+            annotations = []
+
+            if is_first:
+                text += PARA_START
+                annotations.append(_make_ann(SegmentKind.PARA_START, PARA_START))
+
+            text += content
+            annotations.extend(anns)
+
+            text += LINE_SEP
+            annotations.append(_make_ann(SegmentKind.LINE_SEP, LINE_SEP))
+
+            if is_last:
+                text += PARA_SEP
+                annotations.append(_make_ann(SegmentKind.PARA_SEP, PARA_SEP))
+
+            output.append(AnnotatedLine(
+                text=text,
+                annotations=annotations,
+                folio=folio,
+                par=par,
+                line=ln,
+            ))
+    return output
+
+
+# ==============================================================================
 # Public API
 # ==============================================================================
 
@@ -165,3 +251,85 @@ def prepare(df, range_spec=None, max_bytes=DEFAULT_MAX_BYTES):
     lines = _build_output(sliced, token_cols)
     _check_byte_length(lines, max_bytes)
     return lines
+
+def stack_lines(lines, max_bytes=DEFAULT_MAX_BYTES):
+    """Stack a list of line strings into a single string with separators.
+
+    Args:
+        lines: List of line strings (e.g. output of prepare()).
+        max_bytes: Maximum total UTF-8 byte length (default 8192).
+
+    Returns:
+        A list of strings where each sting is a stack of lines up to the byte limit.
+    Raises:
+        ValueError: If the byte limit is exceeded.
+    """
+    stacked = []
+    current_stack = ""
+    for line in lines:
+        candidate_stack = current_stack + line
+        if len(candidate_stack.encode("utf-8")) > max_bytes:
+            if current_stack:
+                stacked.append(current_stack)
+            current_stack = line
+        else:
+            current_stack = candidate_stack
+    if current_stack:
+        stacked.append(current_stack)
+    return stacked
+
+
+def prepare_annotated(df, range_spec=None, max_bytes=DEFAULT_MAX_BYTES):
+    """Prepare VMS Unicode dataframe data with full glyph provenance annotations.
+
+    Args:
+        df: pandas DataFrame with columns folio, par, line, t1-t26.
+        range_spec: Optional range dict, same format as prepare().
+        max_bytes: Maximum total UTF-8 byte length.
+
+    Returns:
+        List of AnnotatedLine, one per manuscript line.
+        Each AnnotatedLine.text is identical to the corresponding string
+        that prepare() would have returned.
+    """
+    if range_spec is not None:
+        sliced = _slice_df(df, range_spec)
+    else:
+        sliced = df
+
+    token_cols = _get_token_cols(sliced)
+    annotated_lines = _build_annotated_output(sliced, token_cols)
+    _check_byte_length([al.text for al in annotated_lines], max_bytes)
+    return annotated_lines
+
+
+def stack_annotated_lines(lines, max_bytes=DEFAULT_MAX_BYTES):
+    """Stack AnnotatedLine objects into AnnotatedChunk objects.
+
+    Concatenates text and annotation lists simultaneously. Each resulting
+    AnnotatedChunk.text is identical to the corresponding string that
+    stack_lines() would have produced from the same lines.
+
+    Args:
+        lines: List of AnnotatedLine (output of prepare_annotated()).
+        max_bytes: Maximum UTF-8 byte length per chunk.
+
+    Returns:
+        List of AnnotatedChunk.
+    """
+    stacked = []
+    current_text = ""
+    current_anns = []
+    for line in lines:
+        candidate = current_text + line.text
+        if len(candidate.encode("utf-8")) > max_bytes:
+            if current_text:
+                stacked.append(AnnotatedChunk(text=current_text, annotations=current_anns))
+            current_text = line.text
+            current_anns = list(line.annotations)
+        else:
+            current_text = candidate
+            current_anns.extend(line.annotations)
+    if current_text:
+        stacked.append(AnnotatedChunk(text=current_text, annotations=current_anns))
+    return stacked

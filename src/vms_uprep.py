@@ -133,15 +133,14 @@ def _build_output(sliced_df, token_cols):
 
 
 def _check_byte_length(lines, max_bytes):
-    """Check total UTF-8 byte length and raise if over budget."""
+    """Check total UTF-8 byte length and warn if over budget."""
     total = sum(len(line.encode("utf-8")) for line in lines)
     if total > max_bytes:
-        msg = (
+        warnings.warn(
             f"Prepared data is {total} bytes, exceeding the limit of "
-            f"{max_bytes} bytes."
+            f"{max_bytes} bytes.",
+            ByteLengthWarning,
         )
-        warnings.warn(msg, ByteLengthWarning)
-        raise ValueError(msg)
 
 
 # ==============================================================================
@@ -240,7 +239,10 @@ def prepare(df, range_spec=None, max_bytes=DEFAULT_MAX_BYTES):
         List of strings, one per manuscript line, with paragraph/line markers.
 
     Raises:
-        ValueError: If range_spec is invalid or byte limit is exceeded.
+        ValueError: If range_spec is invalid.
+
+    Warns:
+        ByteLengthWarning: If total UTF-8 byte length exceeds max_bytes.
     """
     if range_spec is not None:
         sliced = _slice_df(df, range_spec)

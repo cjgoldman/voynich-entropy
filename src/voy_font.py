@@ -36,7 +36,7 @@ import pandas as pd
 
 _FONT_DIR = Path(__file__).resolve().parent.parent / "voynich_fonts/Voynich"
 _FONT_PATH = _FONT_DIR / "VoynichUnicode.ttf"
-_CUSTOM_FONT_PATH = _FONT_DIR / "CustomVoynichUnicode.ttf"
+_CUSTOM_FONT_PATH = _FONT_DIR / "BMPVoynichUnicode.ttf"
 _DEFAULT_FONT_SIZE = "18px"
 _FONTS_LOADED: set[str] = set()
 
@@ -48,7 +48,7 @@ def load_voynich_font(font_path: Path | str | None = None, *, custom: bool = Tru
 
     Args:
         font_path: Explicit path to a .ttf file. Overrides the custom flag.
-        custom: If True (default), load CustomVoynichUnicode.ttf (BMP PUA).
+        custom: If True (default), load BMPVoynichUnicode.ttf (BMP PUA).
                 If False, load the original VoynichUnicode.ttf.
     """
     if font_path:

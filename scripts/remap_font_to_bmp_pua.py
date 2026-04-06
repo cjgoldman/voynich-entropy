@@ -3,7 +3,7 @@ Remap VoynichUnicode.ttf high code points (Supplementary PUA-B, U+FF400–FF51F)
 to the BMP Private Use Area (U+E000–E11F).
 
 Produces:
-  - voynich_fonts/Voynich/CustomVoynichUnicode.ttf
+  - voynich_fonts/Voynich/BMPVoynichUnicode.ttf
   - voynich-attack/transcription/unicode_dict_bmp.json
 
 Existing files are left untouched.
@@ -19,7 +19,7 @@ from fontTools.ttLib import TTFont
 ROOT = Path(__file__).resolve().parent.parent
 
 SRC_FONT = ROOT / "voynich_fonts/Voynich/VoynichUnicode.ttf"
-DST_FONT = ROOT / "voynich_fonts/Voynich/CustomVoynichUnicode.ttf"
+DST_FONT = ROOT / "voynich_fonts/Voynich/BMPVoynichUnicode.ttf"
 
 SRC_DICT = ROOT / "voynich-attack/transcription/unicode_dict.json"
 DST_DICT = ROOT / "voynich-attack/transcription/unicode_dict_bmp.json"

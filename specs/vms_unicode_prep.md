@@ -90,7 +90,7 @@ If `range_spec` is `None`, the entire dataframe is processed.
 
 ### Line Stacking
 
-`stack_lines()` accepts a list of line strings (e.g., the output of `prepare()`) and groups them into larger chunks that each fit within a byte budget (`max_bytes`, default 8192). Lines are concatenated in order; when adding the next line would exceed the limit, a new chunk begins.
+`stack_lines()` accepts a list of line strings (e.g., the output of `prepare()`) and groups them into larger chunks that each fit within a byte budget (`max_bytes`, default 8192 - this default is chosen to match the context window of the BLT entropy model). Lines are concatenated in order; when adding the next line would exceed the limit, a new chunk begins.
 
 Returns a **list of strings**, where each string is a concatenation of consecutive lines.
 

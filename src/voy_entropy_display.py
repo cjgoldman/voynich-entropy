@@ -38,6 +38,7 @@ from entropy_plot import (
     _entropy_css_color,
     _bar_html,
     _build_glyph_groups,
+    _aggregate_glyph_entropies,
 )
 
 # Load Voynich TTF for matplotlib rendering
@@ -89,26 +90,29 @@ _BAND_LABELS = {
 }
 
 
-def _build_band_spans(annotations, level):
-    """Build contiguous byte-range spans for a metadata band level.
+def _build_band_spans(annotations, level, *, mode="byte"):
+    """Build contiguous spans for a metadata band level.
 
     Args:
         annotations: list of GlyphAnnotation (from AnnotatedChunk).
         level: One of "folio", "par", "line", "token".
+        mode: "byte" or "glyph". In glyph mode, positions are glyph indices
+              (each annotation contributes 1 unit regardless of byte count).
 
     Returns:
-        List of (byte_start, byte_width, segment_key, label) tuples.
+        List of (start, width, segment_key, label) tuples.
     """
     from vms_annot import SegmentKind
 
     spans = []
-    byte_cursor = 0
+    cursor = 0
     _SENTINEL = object()
     current_key = _SENTINEL
     span_start = 0
 
     for ann in annotations:
         n_bytes = len(ann.char.encode("utf-8"))
+        step = 1 if mode == "glyph" else n_bytes
 
         if ann.kind == SegmentKind.GLYPH:
             if level == "folio":
@@ -131,18 +135,18 @@ def _build_band_spans(annotations, level):
             elif level == "par" and breaks_par:
                 key = None
             else:
-                key = current_key
+                key = current_key if current_key is not _SENTINEL else None
 
         if key != current_key:
-            if byte_cursor > span_start and current_key is not _SENTINEL:
-                spans.append((span_start, byte_cursor - span_start, current_key, _band_label(level, current_key)))
-            span_start = byte_cursor
+            if cursor > span_start and current_key is not _SENTINEL:
+                spans.append((span_start, cursor - span_start, current_key, _band_label(level, current_key)))
+            span_start = cursor
             current_key = key
 
-        byte_cursor += n_bytes
+        cursor += step
 
-    if byte_cursor > span_start and current_key is not _SENTINEL:
-        spans.append((span_start, byte_cursor - span_start, current_key, _band_label(level, current_key)))
+    if cursor > span_start and current_key is not _SENTINEL:
+        spans.append((span_start, cursor - span_start, current_key, _band_label(level, current_key)))
 
     return spans
 
@@ -161,20 +165,21 @@ def _band_label(level, key):
         return f"T{key[3]}"
 
 
-def _chunk_to_bands(chunk):
+def _chunk_to_bands(chunk, *, mode="byte"):
     """Convert an AnnotatedChunk into a list of generic BandSpec objects.
 
     Args:
         chunk: An AnnotatedChunk with manuscript position annotations.
+        mode: "byte" or "glyph". Forwarded to _build_band_spans.
 
     Returns:
         List of BandSpec in display order (token, line, par, folio).
     """
     bands = []
     for level in ("token", "line", "par", "folio"):
-        raw_spans = _build_band_spans(chunk.annotations, level)
+        raw_spans = _build_band_spans(chunk.annotations, level, mode=mode)
         specs = [
-            BandSpan(byte_start=s, byte_width=w, text=lbl)
+            BandSpan(start=s, width=w, text=lbl)
             for s, w, key, lbl in raw_spans
             if key is not None
         ]
@@ -258,8 +263,9 @@ def display_entropy_table(
     show_header=True,
     font_size="20px",
     bar_width=120,
+    mode="byte",
 ):
-    """Display a per-byte entropy table in a Jupyter notebook.
+    """Display an entropy table in a Jupyter notebook.
 
     Args:
         text: The source Unicode string.
@@ -268,6 +274,8 @@ def display_entropy_table(
         show_header: If True, show the input text in Voynich font above the table.
         font_size: CSS font size for glyphs in the table.
         bar_width: Width in pixels for the entropy distribution bar.
+        mode: "byte" or "glyph". In glyph mode, one row per character with
+              summed byte entropies; the Byte column is omitted.
 
     Returns:
         IPython HTML object.
@@ -278,9 +286,6 @@ def display_entropy_table(
         result = HTML("<p style='color:#94a3b8;'>No entropy values to display.</p>")
         display(result)
         return result
-
-    min_e = min(entropy_values)
-    max_e = max(entropy_values)
 
     parts = [_TABLE_CSS]
 
@@ -294,62 +299,99 @@ def display_entropy_table(
             f'{escaped}</div>'
         )
 
-    # Table
-    parts.append('<table class="entropy-table">')
-    parts.append(
-        "<thead><tr>"
-        "<th>Pos</th>"
-        "<th>Byte</th>"
-        "<th>Glyph</th>"
-        "<th>Entropy</th>"
-        "<th>Distribution</th>"
-        "</tr></thead><tbody>"
-    )
+    if mode == "glyph":
+        # Glyph mode: one row per Unicode character, no Byte column
+        glyph_entropies = _aggregate_glyph_entropies(text, entropy_values)
+        min_e = min(glyph_entropies)
+        max_e = max(glyph_entropies)
 
-    # Build glyph groups for rowspan and alternating bands
-    glyph_groups = _build_glyph_groups(text)
+        parts.append('<table class="entropy-table">')
+        parts.append(
+            "<thead><tr>"
+            "<th>Pos</th>"
+            "<th>Glyph</th>"
+            "<th>Entropy</th>"
+            "<th>Distribution</th>"
+            "</tr></thead><tbody>"
+        )
 
-    # Map each byte position to its group index for band toggling
-    byte_to_group = {}
-    for group_idx, (_ch, start, n_bytes) in enumerate(glyph_groups):
-        for b in range(start, start + n_bytes):
-            byte_to_group[b] = group_idx
-
-    # Set of byte positions that start a new glyph group
-    group_starts = {start for _, start, _ in glyph_groups}
-    # Map start byte -> (char, num_bytes)
-    group_info = {start: (ch, n_bytes) for ch, start, n_bytes in glyph_groups}
-
-    for i, (tok, ent) in enumerate(zip(token_ids, entropy_values)):
-        color = _entropy_css_color(ent, min_e, max_e)
-
-        # Alternating band class
-        g_idx = byte_to_group.get(i, 0)
-        band_class = "glyph-band-a" if g_idx % 2 == 0 else "glyph-band-b"
-        first_class = " glyph-group-first" if i in group_starts else ""
-
-        bar = _bar_html(ent, max_e, width_px=bar_width, color=color)
-
-        # Build glyph cell only on first byte of each group (rowspan)
-        glyph_td = ""
-        if i in group_info:
-            ch, n_bytes = group_info[i]
+        for glyph_idx, (ch, ent) in enumerate(zip(text, glyph_entropies)):
+            color = _entropy_css_color(ent, min_e, max_e)
+            band_class = "glyph-band-a" if glyph_idx % 2 == 0 else "glyph-band-b"
+            bar = _bar_html(ent, max_e, width_px=bar_width, color=color)
             glyph_content = (
                 f'<span style="font-family: VoynichUnicode, monospace; '
                 f'font-size:{font_size};">{_html.escape(ch)}</span>'
             )
-            rowspan_attr = f' rowspan="{n_bytes}"' if n_bytes > 1 else ""
-            glyph_td = f'<td class="glyph-span"{rowspan_attr}>{glyph_content}</td>'
 
+            parts.append(
+                f'<tr class="{band_class}">'
+                f'<td class="pos">{glyph_idx}</td>'
+                f'<td class="glyph-span">{glyph_content}</td>'
+                f'<td class="ent" style="color:{color};">{ent:.4f}</td>'
+                f'<td style="color:{color};">{bar}</td>'
+                f"</tr>"
+            )
+    else:
+        # Byte mode: one row per byte with rowspan glyph grouping
+        min_e = min(entropy_values)
+        max_e = max(entropy_values)
+
+        parts.append('<table class="entropy-table">')
         parts.append(
-            f'<tr class="{band_class}{first_class}">'
-            f'<td class="pos">{i}</td>'
-            f'<td class="byte">{tok}</td>'
-            f'{glyph_td}'
-            f'<td class="ent" style="color:{color};">{ent:.4f}</td>'
-            f'<td style="color:{color};">{bar}</td>'
-            f"</tr>"
+            "<thead><tr>"
+            "<th>Pos</th>"
+            "<th>Byte</th>"
+            "<th>Glyph</th>"
+            "<th>Entropy</th>"
+            "<th>Distribution</th>"
+            "</tr></thead><tbody>"
         )
+
+        # Build glyph groups for rowspan and alternating bands
+        glyph_groups = _build_glyph_groups(text)
+
+        # Map each byte position to its group index for band toggling
+        byte_to_group = {}
+        for group_idx, (_ch, start, n_bytes) in enumerate(glyph_groups):
+            for b in range(start, start + n_bytes):
+                byte_to_group[b] = group_idx
+
+        # Set of byte positions that start a new glyph group
+        group_starts = {start for _, start, _ in glyph_groups}
+        # Map start byte -> (char, num_bytes)
+        group_info = {start: (ch, n_bytes) for ch, start, n_bytes in glyph_groups}
+
+        for i, (tok, ent) in enumerate(zip(token_ids, entropy_values)):
+            color = _entropy_css_color(ent, min_e, max_e)
+
+            # Alternating band class
+            g_idx = byte_to_group.get(i, 0)
+            band_class = "glyph-band-a" if g_idx % 2 == 0 else "glyph-band-b"
+            first_class = " glyph-group-first" if i in group_starts else ""
+
+            bar = _bar_html(ent, max_e, width_px=bar_width, color=color)
+
+            # Build glyph cell only on first byte of each group (rowspan)
+            glyph_td = ""
+            if i in group_info:
+                ch, n_bytes = group_info[i]
+                glyph_content = (
+                    f'<span style="font-family: VoynichUnicode, monospace; '
+                    f'font-size:{font_size};">{_html.escape(ch)}</span>'
+                )
+                rowspan_attr = f' rowspan="{n_bytes}"' if n_bytes > 1 else ""
+                glyph_td = f'<td class="glyph-span"{rowspan_attr}>{glyph_content}</td>'
+
+            parts.append(
+                f'<tr class="{band_class}{first_class}">'
+                f'<td class="pos">{i}</td>'
+                f'<td class="byte">{tok}</td>'
+                f'{glyph_td}'
+                f'<td class="ent" style="color:{color};">{ent:.4f}</td>'
+                f'<td style="color:{color};">{bar}</td>'
+                f"</tr>"
+            )
 
     parts.append("</tbody></table>")
 
@@ -371,24 +413,26 @@ def display_entropy_plot(
     figsize=None,
     dpi=200,
     glyphs_per_inch=4,
+    mode="byte",
 ):
-    """Display a matplotlib line plot of per-byte entropy.
+    """Display a matplotlib line plot of entropy values.
 
     Args:
         entropy_values: List of float entropy values.
-        text: Optional source text — if provided, byte-aligned character
-              labels are placed on the x-axis.
+        text: Optional source text — if provided, character labels are placed
+              on the x-axis.
         chunk: Optional AnnotatedChunk — if provided, horizontal metadata
                bands (folio, paragraph, line, token) are rendered below
                the main plot.
         figsize: Matplotlib figure size tuple.
         dpi: Figure DPI.
         glyphs_per_inch: Target glyph density when figsize is auto-computed.
+        mode: "byte" or "glyph". Forwarded to band construction and plot_entropy.
 
     Returns:
         The matplotlib Figure.
     """
-    bands = _chunk_to_bands(chunk) if chunk is not None else None
+    bands = _chunk_to_bands(chunk, mode=mode) if chunk is not None else None
     return plot_entropy(
         entropy_values,
         text=text,
@@ -398,6 +442,7 @@ def display_entropy_plot(
         figsize=figsize,
         dpi=dpi,
         glyphs_per_inch=glyphs_per_inch,
+        mode=mode,
     )
 
 
@@ -405,22 +450,23 @@ def display_entropy_plot(
 # All-in-one display
 # ==============================================================================
 
-def display_entropy(text, token_ids, entropy_values, *, show_table=True, show_summary=True, show_plot=True, chunk=None, **kwargs):
+def display_entropy(text, token_ids, entropy_values, *, mode="byte", show_table=True, show_summary=True, show_plot=True, chunk=None, **kwargs):
     """Display the full entropy analysis: table, summary, and optional plot.
 
     Args:
         text: Source Unicode string.
         token_ids: List of raw byte values (0-255).
         entropy_values: List of float entropy values, one per byte.
-        show_table: If True, show the per-byte entropy table.
+        mode: "byte" or "glyph". Controls granularity of all three views.
+        show_table: If True, show the entropy table.
         show_summary: If True, show summary statistics.
         show_plot: If True, show a matplotlib line plot.
         chunk: Optional AnnotatedChunk for manuscript position bands.
         **kwargs: Passed through to display_entropy_table.
     """
     if show_table:
-        display_entropy_table(text, token_ids, entropy_values, **kwargs)
+        display_entropy_table(text, token_ids, entropy_values, mode=mode, **kwargs)
     if show_summary:
-        display_entropy_summary(entropy_values)
+        display_entropy_summary(entropy_values, text=text, mode=mode)
     if show_plot:
-        display_entropy_plot(entropy_values, text=text, chunk=chunk)
+        display_entropy_plot(entropy_values, text=text, chunk=chunk, mode=mode)

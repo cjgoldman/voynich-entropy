@@ -28,7 +28,9 @@ from __future__ import annotations
 
 import html as _html
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any, Callable, Literal
+
+EntropyMode = Literal["byte", "glyph"]
 
 from IPython.display import HTML, display
 import matplotlib.pyplot as plt
@@ -44,8 +46,8 @@ import numpy as np
 @dataclass
 class BandSpan:
     """A single contiguous region within a metadata band."""
-    byte_start: int
-    byte_width: int
+    start: int
+    width: int
     text: str  # short label rendered inside the span
 
 
@@ -158,6 +160,23 @@ def _build_glyph_groups(text):
     return groups
 
 
+def _aggregate_glyph_entropies(text, entropy_values):
+    """Convert byte-level entropy values to glyph-level by summing per character.
+
+    Args:
+        text: Source Unicode string.
+        entropy_values: List of float entropy values, one per UTF-8 byte.
+
+    Returns:
+        List of floats with one entry per Unicode character (sum of byte entropies).
+    """
+    groups = _build_glyph_groups(text)
+    glyph_entropies = []
+    for _ch, byte_start, num_bytes in groups:
+        glyph_entropies.append(sum(entropy_values[byte_start:byte_start + num_bytes]))
+    return glyph_entropies
+
+
 # ==============================================================================
 # Summary display
 # ==============================================================================
@@ -180,11 +199,14 @@ _SUMMARY_CSS = """\
 """
 
 
-def display_entropy_summary(entropy_values):
+def display_entropy_summary(entropy_values, *, text=None, mode="byte"):
     """Display summary statistics for entropy values.
 
     Args:
         entropy_values: List of float entropy values.
+        text: Source text (required when mode="glyph").
+        mode: "byte" or "glyph". In glyph mode, entropy values are aggregated
+              per character before computing statistics.
 
     Returns:
         IPython HTML object.
@@ -194,13 +216,22 @@ def display_entropy_summary(entropy_values):
         display(result)
         return result
 
-    min_e = min(entropy_values)
-    max_e = max(entropy_values)
-    mean_e = sum(entropy_values) / len(entropy_values)
+    if mode == "glyph":
+        if text is None:
+            raise ValueError("text is required when mode='glyph'")
+        values = _aggregate_glyph_entropies(text, entropy_values)
+    else:
+        values = entropy_values
+
+    min_e = min(values)
+    max_e = max(values)
+    mean_e = sum(values) / len(values)
 
     color_min = _entropy_css_color(min_e, min_e, max_e)
     color_max = _entropy_css_color(max_e, min_e, max_e)
     color_mean = _entropy_css_color(mean_e, min_e, max_e)
+
+    count_label = "Glyphs:" if mode == "glyph" else "Bytes:"
 
     html_str = (
         _SUMMARY_CSS
@@ -211,8 +242,8 @@ def display_entropy_summary(entropy_values):
         f'<span class="value" style="color:{color_max};">{max_e:.4f}</span>'
         f'<span class="label">Min:</span>'
         f'<span class="value" style="color:{color_min};">{min_e:.4f}</span>'
-        f'<span class="label">Bytes:</span>'
-        f'<span class="value">{len(entropy_values)}</span>'
+        f'<span class="label">{count_label}</span>'
+        f'<span class="value">{len(values)}</span>'
         f"</div>"
     )
     result = HTML(html_str)
@@ -234,13 +265,13 @@ def _render_metadata_band(ax, band, alpha=0.75):
     """
     for span in band.spans:
         ax.broken_barh(
-            [(span.byte_start - 0.5, span.byte_width)],
+            [(span.start - 0.5, span.width)],
             (0, 1),
             facecolors=band.color,
             alpha=alpha,
             edgecolors="none",
         )
-        cx = span.byte_start + span.byte_width / 2.0 - 0.5
+        cx = span.start + span.width / 2.0 - 0.5
         ax.text(
             cx, 0.5, span.text,
             ha="center", va="center",
@@ -270,13 +301,14 @@ def plot_entropy(
     figsize=None,
     dpi=200,
     glyphs_per_inch=4,
+    mode="byte",
 ):
-    """Display a matplotlib line plot of per-byte entropy.
+    """Display a matplotlib line plot of entropy values.
 
     Args:
-        entropy_values: List of float entropy values.
-        text: Optional source text — if provided, byte-aligned character
-              labels are placed on the x-axis.
+        entropy_values: List of float entropy values, one per byte.
+        text: Optional source text — if provided, character labels are placed
+              on the x-axis.
         bands: Optional list of BandSpec — if provided, horizontal metadata
                bands are rendered below the main plot.
         font: Optional FontSpec — custom font for matching glyph labels.
@@ -288,19 +320,30 @@ def plot_entropy(
                  glyphs per horizontal inch.
         dpi: Figure DPI.
         glyphs_per_inch: Target glyph density when figsize is auto-computed.
+        mode: "byte" or "glyph". In glyph mode, entropy values are aggregated
+              per character before plotting.
 
     Returns:
         The matplotlib Figure.
     """
+    # In glyph mode, aggregate byte entropies to glyph level
+    if mode == "glyph" and text is not None:
+        plot_values = _aggregate_glyph_entropies(text, entropy_values)
+    else:
+        plot_values = list(entropy_values)
+
     has_bands = bands is not None and len(bands) > 0
 
     if figsize is None:
-        n_glyphs = len(text) if text else len(entropy_values)
+        if mode == "glyph":
+            n_glyphs = len(text) if text else len(plot_values)
+        else:
+            n_glyphs = len(plot_values) if plot_values else (len(text) if text else 0)
         width = max(4.0, n_glyphs / glyphs_per_inch)
         height = 4.0 if has_bands else 3.0
         figsize = (width, height)
 
-    if not entropy_values:
+    if not plot_values:
         fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
         ax.text(0.5, 0.5, "No data", ha="center", va="center", transform=ax.transAxes)
         plt.show()
@@ -321,8 +364,8 @@ def plot_entropy(
     else:
         fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
 
-    positions = np.arange(len(entropy_values))
-    values = np.array(entropy_values)
+    positions = np.arange(len(plot_values))
+    values = np.array(plot_values)
     min_e, max_e = values.min(), values.max()
     if min_e == max_e:
         max_e = min_e + 1.0
@@ -330,21 +373,40 @@ def plot_entropy(
     # Alternating glyph-group bands with optional shading rules
     if text:
         glyph_groups = _build_glyph_groups(text)
-        for group_idx, (ch, start, n_bytes) in enumerate(glyph_groups):
-            x0 = start - 0.5
-            x1 = start + n_bytes - 0.5
-            matched = False
-            if shading_rules:
-                for rule in shading_rules:
-                    if ch in rule.chars:
-                        ax.axvspan(x0, x1, color=rule.color, alpha=rule.alpha, zorder=0)
-                        matched = True
-                        break
-            if not matched:
-                if group_idx % 2 == 0:
-                    ax.axvspan(x0, x1, color="#94a3b8", alpha=0.25, zorder=0)
-                else:
-                    ax.axvspan(x0, x1, color="#1e293b", alpha=0.25, zorder=0)
+        if mode == "glyph":
+            # One x-unit per glyph
+            for glyph_idx, (ch, _start, _n_bytes) in enumerate(glyph_groups):
+                x0 = glyph_idx - 0.5
+                x1 = glyph_idx + 0.5
+                matched = False
+                if shading_rules:
+                    for rule in shading_rules:
+                        if ch in rule.chars:
+                            ax.axvspan(x0, x1, color=rule.color, alpha=rule.alpha, zorder=0)
+                            matched = True
+                            break
+                if not matched:
+                    if glyph_idx % 2 == 0:
+                        ax.axvspan(x0, x1, color="#94a3b8", alpha=0.25, zorder=0)
+                    else:
+                        ax.axvspan(x0, x1, color="#1e293b", alpha=0.25, zorder=0)
+        else:
+            # Byte mode: spans cover byte ranges
+            for group_idx, (ch, start, n_bytes) in enumerate(glyph_groups):
+                x0 = start - 0.5
+                x1 = start + n_bytes - 0.5
+                matched = False
+                if shading_rules:
+                    for rule in shading_rules:
+                        if ch in rule.chars:
+                            ax.axvspan(x0, x1, color=rule.color, alpha=rule.alpha, zorder=0)
+                            matched = True
+                            break
+                if not matched:
+                    if group_idx % 2 == 0:
+                        ax.axvspan(x0, x1, color="#94a3b8", alpha=0.25, zorder=0)
+                    else:
+                        ax.axvspan(x0, x1, color="#1e293b", alpha=0.25, zorder=0)
 
     # Color each segment by entropy
     cmap = mcolors.LinearSegmentedColormap.from_list(
@@ -382,10 +444,15 @@ def plot_entropy(
         glyph_groups_for_ticks = _build_glyph_groups(text)
         tick_positions = []
         tick_labels = []
-        for ch, start, n_bytes in glyph_groups_for_ticks:
-            center = start + (n_bytes - 1) / 2.0
-            tick_positions.append(center)
-            tick_labels.append(ch)
+        if mode == "glyph":
+            for glyph_idx, (ch, _start, _n_bytes) in enumerate(glyph_groups_for_ticks):
+                tick_positions.append(glyph_idx)
+                tick_labels.append(ch)
+        else:
+            for ch, start, n_bytes in glyph_groups_for_ticks:
+                center = start + (n_bytes - 1) / 2.0
+                tick_positions.append(center)
+                tick_labels.append(ch)
         ax.set_xticks(tick_positions)
         ax.set_xticklabels(tick_labels, rotation=0, fontsize=7)
         if font is not None:
@@ -395,10 +462,11 @@ def plot_entropy(
                     label.set_fontproperties(font.font_properties)
                     label.set_fontsize(font.font_size)
     else:
-        ax.set_xlabel("Byte Position")
+        ax.set_xlabel("Byte Position" if mode == "byte" else "Glyph Position")
 
     ax.set_ylabel("Entropy")
-    ax.set_title("Per-Byte Entropy", fontsize=12, fontweight="bold")
+    title = "Per-Byte Entropy" if mode == "byte" else "Per-Glyph Entropy"
+    ax.set_title(title, fontsize=12, fontweight="bold")
     ax.grid(True, alpha=0.2)
 
     # Render metadata bands
@@ -418,18 +486,31 @@ def plot_entropy(
         glyph_ax.set_ylabel("Glyph", rotation=0, labelpad=40, va="center", fontsize=7, color="#94a3b8")
         if text:
             glyph_groups_for_ticks = _build_glyph_groups(text)
-            for ch, start, n_bytes in glyph_groups_for_ticks:
-                center = start + (n_bytes - 1) / 2.0
-                fp = font.font_properties if (font and font.char_predicate(ch)) else None
-                fs = font.font_size if fp else 7
-                glyph_ax.text(
-                    center, 0.5, ch,
-                    ha="center", va="center",
-                    fontsize=fs,
-                    fontproperties=fp,
-                    clip_on=True,
-                    transform=glyph_ax.get_xaxis_transform(),
-                )
+            if mode == "glyph":
+                for glyph_idx, (ch, _start, _n_bytes) in enumerate(glyph_groups_for_ticks):
+                    fp = font.font_properties if (font and font.char_predicate(ch)) else None
+                    fs = font.font_size if fp else 7
+                    glyph_ax.text(
+                        glyph_idx, 0.5, ch,
+                        ha="center", va="center",
+                        fontsize=fs,
+                        fontproperties=fp,
+                        clip_on=True,
+                        transform=glyph_ax.get_xaxis_transform(),
+                    )
+            else:
+                for ch, start, n_bytes in glyph_groups_for_ticks:
+                    center = start + (n_bytes - 1) / 2.0
+                    fp = font.font_properties if (font and font.char_predicate(ch)) else None
+                    fs = font.font_size if fp else 7
+                    glyph_ax.text(
+                        center, 0.5, ch,
+                        ha="center", va="center",
+                        fontsize=fs,
+                        fontproperties=fp,
+                        clip_on=True,
+                        transform=glyph_ax.get_xaxis_transform(),
+                    )
 
     if has_bands:
         fig.subplots_adjust(hspace=0.08)

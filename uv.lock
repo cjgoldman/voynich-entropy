@@ -3015,6 +3015,7 @@ dev = [
 ]
 gpu = [
     { name = "altair" },
+    { name = "datasets" },
     { name = "datatrove" },
     { name = "fsspec" },
     { name = "huggingface-hub" },
@@ -3062,6 +3063,7 @@ dev = [
 ]
 gpu = [
     { name = "altair", specifier = ">=5.5.0" },
+    { name = "datasets", specifier = ">=3.0" },
     { name = "datatrove", specifier = ">=0.5.0" },
     { name = "fsspec", specifier = ">=2024.6.1" },
     { name = "huggingface-hub", specifier = "==0.30.*" },

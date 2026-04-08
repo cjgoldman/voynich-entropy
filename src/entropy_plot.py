@@ -67,6 +67,14 @@ class FontSpec:
     font_size: float = 12.0
 
 
+def _resolve_font(ch: str, fonts: list[FontSpec]) -> tuple[Any, float]:
+    """Return (font_properties, font_size) for the first matching FontSpec, or (None, 7)."""
+    for spec in fonts:
+        if spec.char_predicate(ch):
+            return spec.font_properties, spec.font_size
+    return None, 7
+
+
 @dataclass
 class GlyphShadingRule:
     """A rule mapping characters to a background color band in the plot."""
@@ -296,7 +304,7 @@ def plot_entropy(
     *,
     text=None,
     bands=None,
-    font=None,
+    fonts=None,
     shading_rules=None,
     figsize=None,
     dpi=200,
@@ -311,7 +319,9 @@ def plot_entropy(
               on the x-axis.
         bands: Optional list of BandSpec — if provided, horizontal metadata
                bands are rendered below the main plot.
-        font: Optional FontSpec — custom font for matching glyph labels.
+        fonts: Optional FontSpec or list of FontSpec — custom font(s) for
+               matching glyph labels.  When multiple are given, each character
+               is matched against fonts in order; the first match wins.
         shading_rules: Optional list of GlyphShadingRule — character-category
                        background colors.  Unmatched characters get alternating
                        gray bands.
@@ -326,6 +336,12 @@ def plot_entropy(
     Returns:
         The matplotlib Figure.
     """
+    # Normalize fonts to a list
+    if fonts is None:
+        fonts = []
+    elif isinstance(fonts, FontSpec):
+        fonts = [fonts]
+
     # In glyph mode, aggregate byte entropies to glyph level
     if mode == "glyph" and text is not None:
         plot_values = _aggregate_glyph_entropies(text, entropy_values)
@@ -455,12 +471,14 @@ def plot_entropy(
                 tick_labels.append(ch)
         ax.set_xticks(tick_positions)
         ax.set_xticklabels(tick_labels, rotation=0, fontsize=7)
-        if font is not None:
+        if fonts:
             for label in ax.get_xticklabels():
                 ch = label.get_text()
-                if ch and font.char_predicate(ch):
-                    label.set_fontproperties(font.font_properties)
-                    label.set_fontsize(font.font_size)
+                if ch:
+                    fp, fs = _resolve_font(ch, fonts)
+                    if fp:
+                        label.set_fontproperties(fp)
+                        label.set_fontsize(fs)
     else:
         ax.set_xlabel("Byte Position" if mode == "byte" else "Glyph Position")
 
@@ -488,8 +506,7 @@ def plot_entropy(
             glyph_groups_for_ticks = _build_glyph_groups(text)
             if mode == "glyph":
                 for glyph_idx, (ch, _start, _n_bytes) in enumerate(glyph_groups_for_ticks):
-                    fp = font.font_properties if (font and font.char_predicate(ch)) else None
-                    fs = font.font_size if fp else 7
+                    fp, fs = _resolve_font(ch, fonts)
                     glyph_ax.text(
                         glyph_idx, 0.5, ch,
                         ha="center", va="center",
@@ -501,8 +518,7 @@ def plot_entropy(
             else:
                 for ch, start, n_bytes in glyph_groups_for_ticks:
                     center = start + (n_bytes - 1) / 2.0
-                    fp = font.font_properties if (font and font.char_predicate(ch)) else None
-                    fs = font.font_size if fp else 7
+                    fp, fs = _resolve_font(ch, fonts)
                     glyph_ax.text(
                         center, 0.5, ch,
                         ha="center", va="center",

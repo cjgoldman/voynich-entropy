@@ -64,6 +64,72 @@ def _voynich_font_spec():
     )
 
 
+def _is_cjk_char(ch: str) -> bool:
+    """Return True for CJK Unified Ideographs and related ranges."""
+    cp = ord(ch)
+    return (0x4E00 <= cp <= 0x9FFF        # CJK Unified Ideographs
+            or 0x3400 <= cp <= 0x4DBF     # CJK Extension A
+            or 0x3000 <= cp <= 0x303F     # CJK Symbols and Punctuation
+            or 0x3040 <= cp <= 0x30FF     # Hiragana + Katakana
+            or 0xAC00 <= cp <= 0xD7AF     # Hangul Syllables
+            or 0xFF00 <= cp <= 0xFFEF)    # Fullwidth Forms
+
+
+def _cjk_font_spec():
+    """Return a FontSpec for CJK characters if a suitable font is found."""
+    for name in ["Noto Sans CJK SC", "Noto Sans CJK JP", "Noto Sans CJK TC",
+                  "Noto Sans SC", "WenQuanYi Micro Hei"]:
+        try:
+            path = fm.findfont(fm.FontProperties(family=name), fallback_to_default=False)
+        except ValueError:
+            continue
+        return FontSpec(
+            font_properties=fm.FontProperties(fname=path),
+            char_predicate=_is_cjk_char,
+            font_size=9.0,
+        )
+    return None
+
+
+def _is_devanagari_char(ch: str) -> bool:
+    """Return True for Devanagari characters and related marks."""
+    cp = ord(ch)
+    return (0x0900 <= cp <= 0x097F        # Devanagari
+            or 0xA8E0 <= cp <= 0xA8FF     # Devanagari Extended
+            or 0x1CD0 <= cp <= 0x1CFF)    # Vedic Extensions
+
+
+def _devanagari_font_spec():
+    """Return a FontSpec for Devanagari characters if a suitable font is found."""
+    for name in ["Lohit Devanagari", "Lohit-Devanagari", "Noto Sans Devanagari",
+                  "Noto Serif Devanagari", "Mangal"]:
+        try:
+            path = fm.findfont(fm.FontProperties(family=name), fallback_to_default=False)
+        except ValueError:
+            continue
+        return FontSpec(
+            font_properties=fm.FontProperties(fname=path),
+            char_predicate=_is_devanagari_char,
+            font_size=9.0,
+        )
+    return None
+
+
+def _build_font_list():
+    """Build a list of FontSpecs for all available custom fonts."""
+    specs = []
+    voy = _voynich_font_spec()
+    if voy:
+        specs.append(voy)
+    cjk = _cjk_font_spec()
+    if cjk:
+        specs.append(cjk)
+    deva = _devanagari_font_spec()
+    if deva:
+        specs.append(deva)
+    return specs or None
+
+
 _VOYNICH_SHADING = [
     GlyphShadingRule(chars={' ', '\t'}, color="#22c55e", alpha=0.12, legend_label="Space / Tab"),
     GlyphShadingRule(chars={'\n', '\r', '\u2028', '\u2029'}, color="#3b82f6", alpha=0.12, legend_label="Line Break"),
@@ -437,7 +503,7 @@ def display_entropy_plot(
         entropy_values,
         text=text,
         bands=bands,
-        font=_voynich_font_spec(),
+        fonts=_build_font_list(),
         shading_rules=_VOYNICH_SHADING,
         figsize=figsize,
         dpi=dpi,

@@ -14,7 +14,12 @@
 		"GITHUB_TOKEN": "${localEnv:GITHUB_TOKEN}",
 		"WANDB_API_KEY":"${localEnv:WANDB_API_KEY}",
 		"HF_TOKEN":"${localEnv:HF_TOKEN}",
-		"HF_HOME": "/workspace/data/hf-models"
+		"HF_HOME": "/workspace/data/hf-models",
+		"CLEARML_API_HOST":"${localEnv:CLEARML_API_HOST}",
+		"CLEARML_WEB_HOST":"${localEnv:CLEARML_WEB_HOST}",
+		"CLEARML_FILES_HOST":"${localEnv:CLEARML_FILES_HOST}",
+		"CLEARML_API_ACCESS_KEY":"${localEnv:CLEARML_API_ACCESS_KEY}",
+		"CLEARML_API_SECRET_KEY":"${localEnv:CLEARML_API_SECRET_KEY}"
 	},
 
 	// mount the data folder into the workspace

@@ -45,6 +45,9 @@ gpu = [
     "wandb>=0.19.10",
     "plotext>=5.0",
     "safetensors>=0.4.0",
+    "lightning>=2.3",
+    "pyyaml>=6.0",
+    "clearml>=1.16",
 ]
 dev = [
     "black==24.8.0",

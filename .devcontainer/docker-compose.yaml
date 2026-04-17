@@ -24,6 +24,7 @@ services:
       # Update this to wherever you want VS Code to mount the folder of your project
       - ..:/workspace:cached
       - ${DATA_DIR}:/workspace/data
+      - von-entropy-claude-config:/home/vscode/.claude
     command: sleep infinity
 
 
@@ -38,6 +39,10 @@ services:
     volumes:
       - ..:/workspace:cached
       - ${DATA_DIR}:/workspace/data
+      - von-entropy-claude-config:/home/vscode/.claude
     command: sleep infinity
     environment:
       - DEVICE=cpu
+
+volumes:
+  von-entropy-claude-config:

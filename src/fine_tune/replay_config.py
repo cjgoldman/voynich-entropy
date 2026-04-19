@@ -27,7 +27,7 @@ class ReplayFineTuneConfig(FineTuneConfig):
     replay_schedule_seed: int = 43
 
     # --- Batch mixing ---
-    replay_ratio: float = 1.0
+    replay_ratio: float = 2.0
 
     # --- Schedule ---
     warmup_fraction: float = 0.04

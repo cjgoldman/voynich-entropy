@@ -44,7 +44,7 @@ class FineTuneConfig:
 
     # --- Schedule ---
     warmup_steps: int = 50
-    epochs: int = 100
+    epochs: int = 10
 
     # --- Checkpointing ---
     checkpoint_every_n_epochs: int = 10

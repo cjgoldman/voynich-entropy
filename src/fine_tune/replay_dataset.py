@@ -73,6 +73,49 @@ def load_or_fetch_replay_pool(
     return [s.text for s in samples]
 
 
+def load_replay_dataset_with_min_chunks(
+    source: str,
+    seed: int,
+    min_chunks: int,
+    max_seq_len: int,
+    cache_dir: Path,
+    initial_pool_size: int,
+) -> tuple[list[str], "DCLMReplayDataset"]:
+    """Fetch a replay pool large enough to yield at least ``min_chunks`` chunks.
+
+    Since ``DCLMReplayDataset`` packs docs into at most ``len(docs)`` chunks
+    (DCLM docs get truncated at ``max_seq_len``), we start with a pool of
+    ``max(initial_pool_size, min_chunks)`` documents, build the dataset, and
+    double the pool size if the resulting chunk count falls short. The HF
+    cache is keyed on ``(source, seed, pool_size)`` and re-fetching with a
+    larger size under the same seed yields a deterministic superset.
+    """
+    pool_size = max(initial_pool_size, min_chunks)
+    max_iterations = 10
+    for iteration in range(max_iterations):
+        print(
+            f"[replay] fetching pool_size={pool_size} "
+            f"(need >= {min_chunks} chunks, iteration={iteration + 1})"
+        )
+        docs = load_or_fetch_replay_pool(
+            source,
+            seed=seed,
+            pool_size=pool_size,
+            cache_dir=cache_dir,
+            max_bytes=max_seq_len,
+        )
+        ds = DCLMReplayDataset(docs, max_seq_len)
+        print(f"[replay] pool_size={pool_size} yielded {len(ds)} chunks")
+        if len(ds) >= min_chunks:
+            return docs, ds
+        pool_size *= 2
+    raise RuntimeError(
+        f"Unable to build replay dataset with >= {min_chunks} chunks "
+        f"after {max_iterations} iterations (last pool_size={pool_size // 2}, "
+        f"last chunks={len(ds)})"
+    )
+
+
 class DCLMReplayDataset(Dataset):
     """Replay dataset of pre-fetched DCLM documents packed into BLT chunks.
 

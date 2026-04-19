@@ -20,7 +20,8 @@ import hf_data_samp
 from fine_tune.config import BLT_BYTE_OFFSET, PAD_ID, VOCAB_SIZE
 from fine_tune.replay_config import ReplayFineTuneConfig
 from fine_tune.replay_dataset import (DCLMReplayDataset, _cache_path,
-                                      load_or_fetch_replay_pool)
+                                      load_or_fetch_replay_pool,
+                                      load_replay_dataset_with_min_chunks)
 from fine_tune.replay_loader import (REPLAY, VOYNICH, BatchScheduler,
                                      MixedDataLoader, MixedLoaderEpochCallback,
                                      _is_integer_ratio, replay_batch_count)
@@ -298,6 +299,7 @@ class TestMixedDataLoader:
             scheduler=sched,
             voynich_shuffle_seed=42,
             replay_shuffle_seed=50,
+            total_epochs=1,
         )
         assert len(loader) == 6
         batches = list(loader)
@@ -309,6 +311,30 @@ class TestMixedDataLoader:
             assert b["tokens"].shape == (1, 4)
             assert b["tokens"].dtype == torch.long
 
+    def test_pin_memory_flag_is_no_op_without_cuda(self):
+        # pin_memory=True must be safe on CPU-only hosts: the loader guards
+        # the call with torch.cuda.is_available() so iteration still works
+        # and yields ordinary (un-pinned) tensors.
+        voynich = _TensorDataset([10, 20], seq_len=4)
+        replay = _TensorDataset([1, 2], seq_len=4)
+        sched = BatchScheduler(num_voynich=2, ratio=1.0, seed=43)
+        loader = MixedDataLoader(
+            voynich_ds=voynich,
+            replay_ds=replay,
+            scheduler=sched,
+            voynich_shuffle_seed=42,
+            replay_shuffle_seed=50,
+            total_epochs=1,
+            pin_memory=True,
+        )
+        assert loader.pin_memory == torch.cuda.is_available()
+        batches = list(loader)
+        assert len(batches) == 4
+        for b in batches:
+            assert b["tokens"].shape == (1, 4)
+            if torch.cuda.is_available():
+                assert b["tokens"].is_pinned()
+
     def test_voynich_samples_not_repeated_within_epoch(self):
         voynich = _TensorDataset([10, 20, 30], seq_len=2)
         replay = _TensorDataset([1], seq_len=2)
@@ -319,29 +345,12 @@ class TestMixedDataLoader:
             scheduler=sched,
             voynich_shuffle_seed=42,
             replay_shuffle_seed=50,
+            total_epochs=1,
         )
         seen = set()
         for batch in loader:
             seen.add(int(batch["tokens"][0, 0].item()))
         assert seen == {10, 20, 30}
-
-    def test_replay_cycles_when_exhausted(self):
-        voynich = _TensorDataset([100], seq_len=2)
-        replay = _TensorDataset([1, 2], seq_len=2)
-        # ratio=5 → 5 replay batches, only 2 unique replay items → must cycle
-        sched = BatchScheduler(num_voynich=1, ratio=5.0, seed=43)
-        loader = MixedDataLoader(
-            voynich_ds=voynich,
-            replay_ds=replay,
-            scheduler=sched,
-            voynich_shuffle_seed=42,
-            replay_shuffle_seed=50,
-        )
-        replay_vals = [
-            int(b["tokens"][0, 0].item()) for b in loader if b["source"] == REPLAY
-        ]
-        assert len(replay_vals) == 5
-        assert set(replay_vals) == {1, 2}
 
     def test_realized_ratio_recorded(self):
         voynich = _TensorDataset([10, 20], seq_len=2)
@@ -353,6 +362,7 @@ class TestMixedDataLoader:
             scheduler=sched,
             voynich_shuffle_seed=42,
             replay_shuffle_seed=50,
+            total_epochs=1,
         )
         assert loader.last_realized_ratio is None
         list(loader)
@@ -360,7 +370,8 @@ class TestMixedDataLoader:
 
     def test_epoch_counter_advances(self):
         voynich = _TensorDataset([10, 20, 30], seq_len=2)
-        replay = _TensorDataset([1, 2], seq_len=2)
+        # Need >= 2 replay per epoch * 2 epochs = 4 chunks
+        replay = _TensorDataset([1, 2, 3, 4], seq_len=2)
         sched = BatchScheduler(num_voynich=3, ratio=0.5, seed=43)
         loader = MixedDataLoader(
             voynich_ds=voynich,
@@ -368,6 +379,7 @@ class TestMixedDataLoader:
             scheduler=sched,
             voynich_shuffle_seed=42,
             replay_shuffle_seed=50,
+            total_epochs=2,
         )
         order_epoch0 = [b["source"] for b in loader]
         order_epoch1 = [b["source"] for b in loader]
@@ -376,7 +388,7 @@ class TestMixedDataLoader:
 
     def test_epoch_sync_callback_overrides_internal_counter(self):
         voynich = _TensorDataset([10, 20, 30], seq_len=2)
-        replay = _TensorDataset([1, 2], seq_len=2)
+        replay = _TensorDataset([1, 2, 3, 4], seq_len=2)
         sched = BatchScheduler(num_voynich=3, ratio=0.5, seed=43)
         loader = MixedDataLoader(
             voynich_ds=voynich,
@@ -384,6 +396,7 @@ class TestMixedDataLoader:
             scheduler=sched,
             voynich_shuffle_seed=42,
             replay_shuffle_seed=50,
+            total_epochs=2,
         )
 
         class _FakeTrainer:
@@ -400,6 +413,7 @@ class TestMixedDataLoader:
             scheduler=sched,
             voynich_shuffle_seed=42,
             replay_shuffle_seed=50,
+            total_epochs=2,
         )
         loader2.set_epoch(7)
         order_reference = [b["source"] for b in loader2]
@@ -416,4 +430,142 @@ class TestMixedDataLoader:
                 scheduler=sched,
                 voynich_shuffle_seed=42,
                 replay_shuffle_seed=50,
+                total_epochs=1,
             )
+
+    def test_replay_globally_unique_across_epochs(self):
+        voynich = _TensorDataset([10, 20], seq_len=2)
+        # ratio=2.0 → 4 replay per epoch, 3 epochs → need 12 unique replay
+        replay = _TensorDataset(list(range(100, 112)), seq_len=2)
+        sched = BatchScheduler(num_voynich=2, ratio=2.0, seed=43)
+        loader = MixedDataLoader(
+            voynich_ds=voynich,
+            replay_ds=replay,
+            scheduler=sched,
+            voynich_shuffle_seed=42,
+            replay_shuffle_seed=50,
+            total_epochs=3,
+        )
+        seen_replay_values = []
+        for _ in range(3):
+            for b in loader:
+                if b["source"] == REPLAY:
+                    seen_replay_values.append(int(b["tokens"][0, 0].item()))
+        assert len(seen_replay_values) == 12
+        assert len(set(seen_replay_values)) == 12
+        assert set(seen_replay_values) == set(range(100, 112))
+
+    def test_init_raises_when_replay_too_small(self):
+        voynich = _TensorDataset([10, 20], seq_len=2)
+        # num_voynich=2, ratio=1.0, epochs=5 → 10 replay needed, only 5 given
+        replay = _TensorDataset([1, 2, 3, 4, 5], seq_len=2)
+        sched = BatchScheduler(num_voynich=2, ratio=1.0, seed=43)
+        with pytest.raises(ValueError, match="globally-unique"):
+            MixedDataLoader(
+                voynich_ds=voynich,
+                replay_ds=replay,
+                scheduler=sched,
+                voynich_shuffle_seed=42,
+                replay_shuffle_seed=50,
+                total_epochs=5,
+            )
+
+    def test_replay_cursor_persists_across_epochs(self):
+        voynich = _TensorDataset([10, 20], seq_len=2)
+        # ratio=1.0 → 2 replay per epoch; 3 epochs → need 6 replay
+        replay = _TensorDataset(list(range(200, 206)), seq_len=2)
+        sched = BatchScheduler(num_voynich=2, ratio=1.0, seed=43)
+        loader = MixedDataLoader(
+            voynich_ds=voynich,
+            replay_ds=replay,
+            scheduler=sched,
+            voynich_shuffle_seed=42,
+            replay_shuffle_seed=50,
+            total_epochs=3,
+        )
+        assert loader._replay_cursor == 0
+        list(loader)
+        assert loader._replay_cursor == sched.num_replay
+        list(loader)
+        assert loader._replay_cursor == 2 * sched.num_replay
+        list(loader)
+        assert loader._replay_cursor == 3 * sched.num_replay
+
+
+class TestLoadReplayDatasetWithMinChunks:
+    def test_grows_pool_until_enough_chunks(self):
+        """Helper doubles pool_size until the built dataset meets min_chunks."""
+        call_sizes = []
+
+        # Each doc is short enough that it packs into exactly one chunk.
+        # stack_lines with max_bytes will concatenate small lines together,
+        # so we mock DCLMReplayDataset directly to make the chunks count
+        # deterministic.
+        class _FakeDS:
+            def __init__(self, docs, max_seq_len):
+                # 70% packing efficiency: n docs → n // 2 chunks
+                self._n = max(1, len(docs) // 2)
+
+            def __len__(self):
+                return self._n
+
+        def fake_load(source, seed, pool_size, cache_dir, max_bytes):
+            call_sizes.append(pool_size)
+            return [f"doc-{i}" for i in range(pool_size)]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with (
+                patch(
+                    "fine_tune.replay_dataset.load_or_fetch_replay_pool",
+                    side_effect=fake_load,
+                ),
+                patch(
+                    "fine_tune.replay_dataset.DCLMReplayDataset",
+                    _FakeDS,
+                ),
+            ):
+                docs, ds = load_replay_dataset_with_min_chunks(
+                    source="DCLM",
+                    seed=1,
+                    min_chunks=20,
+                    max_seq_len=64,
+                    cache_dir=Path(tmpdir),
+                    initial_pool_size=10,
+                )
+        # initial_pool_size=10 < min_chunks=20 → start at 20 (min_chunks),
+        # yields 10 chunks, double to 40 (yields 20) → sufficient.
+        assert call_sizes == [20, 40]
+        assert len(ds) >= 20
+        assert len(docs) == 40
+
+    def test_raises_when_cannot_grow_enough(self):
+        class _FakeDS:
+            def __init__(self, docs, max_seq_len):
+                self._n = 1  # always yields 1 chunk
+
+            def __len__(self):
+                return self._n
+
+        def fake_load(source, seed, pool_size, cache_dir, max_bytes):
+            return [f"doc-{i}" for i in range(pool_size)]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with (
+                patch(
+                    "fine_tune.replay_dataset.load_or_fetch_replay_pool",
+                    side_effect=fake_load,
+                ),
+                patch(
+                    "fine_tune.replay_dataset.DCLMReplayDataset",
+                    _FakeDS,
+                ),
+            ):
+                with pytest.raises(RuntimeError, match="Unable to build"):
+                    load_replay_dataset_with_min_chunks(
+                        source="DCLM",
+                        seed=1,
+                        min_chunks=5,
+                        max_seq_len=64,
+                        cache_dir=Path(tmpdir),
+                        initial_pool_size=1,
+                    )

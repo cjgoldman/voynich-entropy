@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import random
 
+import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import DataLoader, Dataset
@@ -54,14 +55,14 @@ def folio_split(
 def _encode_chunk(text: str, max_seq_len: int = MAX_SEQ_LEN) -> torch.Tensor:
     """Encode a text chunk to BLT token IDs, right-padded to max_seq_len."""
     raw_bytes = text.encode("utf-8")
-    token_ids = [b + BLT_BYTE_OFFSET for b in raw_bytes]
-    # Truncate if somehow longer (shouldn't happen with proper stack_lines)
-    token_ids = token_ids[:max_seq_len]
-    # Right-pad with PAD_ID
-    pad_len = max_seq_len - len(token_ids)
-    if pad_len > 0:
-        token_ids.extend([PAD_ID] * pad_len)
-    return torch.tensor(token_ids, dtype=torch.long)
+    n = min(len(raw_bytes), max_seq_len)
+    out = np.full(max_seq_len, PAD_ID, dtype=np.int64)
+    if n > 0:
+        out[:n] = (
+            np.frombuffer(raw_bytes, dtype=np.uint8, count=n).astype(np.int64)
+            + BLT_BYTE_OFFSET
+        )
+    return torch.from_numpy(out)
 
 
 class VoynichEntropyDataset(Dataset):
@@ -91,4 +92,10 @@ class VoynichEntropyDataset(Dataset):
 
 def make_dataloader(dataset: VoynichEntropyDataset, shuffle: bool) -> DataLoader:
     """Create a DataLoader for the dataset with batch_size=1, num_workers=0."""
-    return DataLoader(dataset, batch_size=1, shuffle=shuffle, num_workers=0)
+    return DataLoader(
+        dataset,
+        batch_size=1,
+        shuffle=shuffle,
+        num_workers=0,
+        pin_memory=torch.cuda.is_available(),
+    )

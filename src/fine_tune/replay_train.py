@@ -19,6 +19,7 @@ os.environ.setdefault("BLT_SUPPRESS_ATTN_ERROR", "1")
 import lightning as L
 from clearml import Task
 from lightning.pytorch.callbacks import ModelCheckpoint
+import torch
 from torch.utils.data import DataLoader
 from voynpy.corpora import vms_unicode
 
@@ -27,9 +28,11 @@ from fine_tune.dataset import (VoynichEntropyDataset, folio_split,
                                make_dataloader)
 from fine_tune.replay_config import ReplayFineTuneConfig
 from fine_tune.replay_dataset import (DCLMReplayDataset,
-                                      load_or_fetch_replay_pool)
+                                      load_or_fetch_replay_pool,
+                                      load_replay_dataset_with_min_chunks)
 from fine_tune.replay_loader import (BatchScheduler, MixedDataLoader,
-                                     MixedLoaderEpochCallback)
+                                     MixedLoaderEpochCallback,
+                                     replay_batch_count)
 from fine_tune.replay_module import ReplayEntropyFineTune
 
 _CLEARML_ENV_VARS = (
@@ -125,12 +128,17 @@ def main() -> None:
 
     # Replay pools (training + held-out validation)
     cache_dir = _replay_cache_dir(config)
-    train_docs = load_or_fetch_replay_pool(
+    num_replay_per_epoch = replay_batch_count(
+        len(voynich_train_ds), config.replay_ratio
+    )
+    total_replay_needed = num_replay_per_epoch * config.epochs
+    train_docs, replay_train_ds = load_replay_dataset_with_min_chunks(
         config.replay_source,
         seed=config.replay_seed,
-        pool_size=config.replay_pool_size,
+        min_chunks=total_replay_needed,
+        max_seq_len=config.max_seq_len,
         cache_dir=cache_dir,
-        max_bytes=config.max_seq_len,
+        initial_pool_size=config.replay_pool_size,
     )
     val_docs = load_or_fetch_replay_pool(
         config.replay_source,
@@ -139,7 +147,6 @@ def main() -> None:
         cache_dir=cache_dir,
         max_bytes=config.max_seq_len,
     )
-    replay_train_ds = DCLMReplayDataset(train_docs, config.max_seq_len)
     replay_val_ds = DCLMReplayDataset(val_docs, config.max_seq_len)
 
     # Scheduler + mixed train loader
@@ -154,12 +161,18 @@ def main() -> None:
         scheduler=scheduler,
         voynich_shuffle_seed=config.split_seed,
         replay_shuffle_seed=config.replay_schedule_seed + 7,
+        total_epochs=config.epochs,
+        pin_memory=True,
     )
 
     # Two validation dataloaders (order matters: voynich then replay)
     voynich_val_dl = make_dataloader(voynich_val_ds, shuffle=False)
     replay_val_dl = DataLoader(
-        replay_val_ds, batch_size=1, shuffle=False, num_workers=0
+        replay_val_ds,
+        batch_size=1,
+        shuffle=False,
+        num_workers=0,
+        pin_memory=torch.cuda.is_available(),
     )
     val_dls = [voynich_val_dl, replay_val_dl]
 
@@ -236,6 +249,8 @@ def main() -> None:
         log_every_n_steps=1,
         enable_progress_bar=True,
         default_root_dir=str(run_dir),
+        accelerator="gpu",
+        devices=1,
     )
 
     trainer.fit(module, train_loader, val_dls)

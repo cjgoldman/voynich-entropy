@@ -34,6 +34,7 @@ from entropy_plot import (
     FontSpec,
     GlyphShadingRule,
     plot_entropy,
+    plot_glyph_bars,
     display_entropy_summary,
     _entropy_css_color,
     _bar_html,
@@ -509,6 +510,72 @@ def display_entropy_plot(
         dpi=dpi,
         glyphs_per_inch=glyphs_per_inch,
         mode=mode,
+    )
+
+
+# ==============================================================================
+# Token-distance bar chart (entropy-reduction attribution)
+# ==============================================================================
+
+def display_token_distance_plot(
+    token_distances,
+    *,
+    text=None,
+    chunk=None,
+    figsize=None,
+    dpi=200,
+    glyphs_per_inch=4,
+    title="Top-1 Attribution: Context Token Distance per Glyph",
+    ylabel="Distance to top\ncontext token (tokens)",
+    bar_color="#60a5fa",
+    deltas=None,
+    delta_positive_color="#22c55e",
+    delta_negative_color="#ef4444",
+    delta_ylabel="Entropy reduction\n(nats)",
+):
+    """Display a bar chart of per-glyph top-1 attribution distances.
+
+    Args:
+        token_distances: One entry per character of `text`.  Integers give
+            the token distance from the glyph to its top-1 context token
+            (positive = preceding).  `None` means no attribution for that
+            position (structural markers, or targets with no in-window
+            context) and is drawn as a small baseline tick.
+        text: The source string — one character per entry in
+            token_distances.  Used for x-axis glyph labels.
+        chunk: Optional AnnotatedChunk — if provided, folio/par/line/token
+            metadata bands are rendered below the plot.
+        figsize, dpi, glyphs_per_inch: Passed to plot_glyph_bars.
+        title, ylabel, bar_color: Customize labels and bar color.
+        deltas: Optional per-glyph entropy-reduction magnitudes (same length
+            as token_distances).  Rendered as vertical lines on a twin
+            y-axis — green for positive (context reduced entropy) and red
+            for negative (context increased entropy) — so viewers can read
+            both the distance to the top context token and its signed
+            contribution.
+        delta_positive_color, delta_negative_color, delta_ylabel: Styling
+            for the overlay.
+
+    Returns:
+        The matplotlib Figure.
+    """
+    bands = _chunk_to_bands(chunk, mode="glyph") if chunk is not None else None
+    return plot_glyph_bars(
+        token_distances,
+        text=text,
+        bands=bands,
+        fonts=_build_font_list(),
+        shading_rules=_VOYNICH_SHADING,
+        figsize=figsize,
+        dpi=dpi,
+        glyphs_per_inch=glyphs_per_inch,
+        title=title,
+        ylabel=ylabel,
+        bar_color=bar_color,
+        overlay_values=deltas,
+        overlay_positive_color=delta_positive_color,
+        overlay_negative_color=delta_negative_color,
+        overlay_ylabel=delta_ylabel,
     )
 
 

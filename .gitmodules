@@ -1,7 +1,6 @@
 [submodule "voynich-attack"]
 	path = voynich-attack
 	url = https://github.com/alexanderboxer/voynich-attack
-	ignore = dirty
 [submodule "blt"]
 	path = blt
 	url = https://github.com/facebookresearch/blt

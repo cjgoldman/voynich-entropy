@@ -534,3 +534,215 @@ def plot_entropy(
         fig.tight_layout()
     plt.show()
     return fig
+
+
+# ==============================================================================
+# Per-glyph bar chart
+# ==============================================================================
+
+def plot_glyph_bars(
+    values,
+    *,
+    text=None,
+    bands=None,
+    fonts=None,
+    shading_rules=None,
+    figsize=None,
+    dpi=200,
+    glyphs_per_inch=4,
+    ylabel="Value",
+    title="Per-Glyph Value",
+    bar_color="#60a5fa",
+    missing_color="#334155",
+    overlay_values=None,
+    overlay_positive_color="#22c55e",
+    overlay_negative_color="#ef4444",
+    overlay_ylabel="Overlay",
+    overlay_linewidth=1.5,
+):
+    """Bar chart with one bar per glyph, sharing plot_entropy's chrome.
+
+    Args:
+        values: Sequence of per-glyph values (None entries render as an empty
+            tick so positional alignment with `text` is preserved).
+        text: Optional source string — one character per value. Character
+            labels are placed on the x-axis.
+        bands, fonts, shading_rules, figsize, dpi, glyphs_per_inch: Same
+            semantics as plot_entropy.
+        ylabel, title: Axis label and plot title.
+        bar_color: Hex fill for bars with a defined value.
+        missing_color: Hex fill for the baseline tick drawn at glyphs whose
+            value is None (keeps x-axis aligned).
+        overlay_values: Optional sequence (same length as `values`) drawn as
+            vertical lines on a twin y-axis.  Each entry's magnitude sets
+            the line height; None entries are skipped.  Useful for layering
+            a second per-glyph quantity (e.g. attribution magnitude) on
+            top of the main bars.
+        overlay_positive_color: Color for overlay entries >= 0.
+        overlay_negative_color: Color for overlay entries < 0.
+        overlay_ylabel, overlay_linewidth: Styling for the overlay.
+
+    Returns:
+        The matplotlib Figure.
+    """
+    if fonts is None:
+        fonts = []
+    elif isinstance(fonts, FontSpec):
+        fonts = [fonts]
+
+    has_bands = bands is not None and len(bands) > 0
+
+    if figsize is None:
+        n_glyphs = len(values)
+        width = max(4.0, n_glyphs / glyphs_per_inch)
+        height = 4.5 if has_bands else 3.5
+        figsize = (width, height)
+
+    if not values:
+        fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
+        ax.text(0.5, 0.5, "No data", ha="center", va="center", transform=ax.transAxes)
+        plt.show()
+        return fig
+
+    if has_bands:
+        from matplotlib.gridspec import GridSpec
+        n_bands = len(bands)
+        height_ratios = [12, 1.5] + [1] * n_bands
+        fig = plt.figure(figsize=figsize, dpi=dpi)
+        gs = GridSpec(2 + n_bands, 1, height_ratios=height_ratios, hspace=0.08, figure=fig)
+        ax = fig.add_subplot(gs[0])
+        glyph_ax = fig.add_subplot(gs[1], sharex=ax)
+        band_axes = [fig.add_subplot(gs[2 + i], sharex=ax) for i in range(n_bands)]
+    else:
+        fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
+
+    positions = np.arange(len(values))
+
+    if text:
+        glyph_groups = _build_glyph_groups(text)
+        for glyph_idx, (ch, _start, _n_bytes) in enumerate(glyph_groups):
+            x0 = glyph_idx - 0.5
+            x1 = glyph_idx + 0.5
+            matched = False
+            if shading_rules:
+                for rule in shading_rules:
+                    if ch in rule.chars:
+                        ax.axvspan(x0, x1, color=rule.color, alpha=rule.alpha, zorder=0)
+                        matched = True
+                        break
+            if not matched:
+                if glyph_idx % 2 == 0:
+                    ax.axvspan(x0, x1, color="#94a3b8", alpha=0.25, zorder=0)
+                else:
+                    ax.axvspan(x0, x1, color="#1e293b", alpha=0.25, zorder=0)
+
+    defined_xs = [i for i, v in enumerate(values) if v is not None]
+    defined_ys = [values[i] for i in defined_xs]
+    missing_xs = [i for i, v in enumerate(values) if v is None]
+
+    if defined_xs:
+        ax.bar(
+            defined_xs, defined_ys, width=0.8,
+            color=bar_color, edgecolor="none", zorder=3,
+        )
+    if missing_xs:
+        ax.bar(
+            missing_xs, [0.02] * len(missing_xs), width=0.8,
+            color=missing_color, edgecolor="none", zorder=2,
+        )
+
+    overlay_ax = None
+    if overlay_values is not None:
+        if len(overlay_values) != len(values):
+            raise ValueError(
+                "overlay_values must be the same length as values "
+                f"(got {len(overlay_values)} vs {len(values)})"
+            )
+        overlay_xs = [i for i, v in enumerate(overlay_values) if v is not None]
+        overlay_ys = [float(overlay_values[i]) for i in overlay_xs]
+        overlay_colors = [
+            overlay_positive_color if y >= 0 else overlay_negative_color
+            for y in overlay_ys
+        ]
+        overlay_ax = ax.twinx()
+        if overlay_xs:
+            overlay_ax.vlines(
+                overlay_xs, 0, overlay_ys,
+                colors=overlay_colors, linewidth=overlay_linewidth, zorder=4,
+            )
+            top = max(overlay_ys + [0.0])
+            bottom = min(overlay_ys + [0.0])
+            pad = (top - bottom) * 0.1 if top > bottom else 1.0
+            overlay_ax.set_ylim(bottom - (pad if bottom < 0 else 0), top + pad)
+        overlay_ax.set_ylabel(overlay_ylabel, color="#475569", fontsize=8)
+        overlay_ax.tick_params(axis="y", colors="#475569", labelsize=7)
+        overlay_ax.spines["right"].set_color("#475569")
+        overlay_ax.axhline(0, color="#475569", linewidth=0.5, alpha=0.4, zorder=1)
+
+    legend_handles = []
+    if text and shading_rules:
+        chars_in_text = set(text)
+        for rule in shading_rules:
+            if chars_in_text & rule.chars:
+                legend_handles.append(
+                    mpatches.Patch(color=rule.color, alpha=rule.alpha + 0.18, label=rule.legend_label)
+                )
+    if legend_handles:
+        ax.legend(handles=legend_handles, loc="upper right", fontsize=7, framealpha=0.7)
+
+    if has_bands:
+        ax.tick_params(axis="x", labelbottom=False)
+    elif text:
+        tick_positions, tick_labels = list(positions), list(text)
+        ax.set_xticks(tick_positions)
+        ax.set_xticklabels(tick_labels, rotation=0, fontsize=7)
+        if fonts:
+            for label in ax.get_xticklabels():
+                ch = label.get_text()
+                if ch:
+                    fp, fs = _resolve_font(ch, fonts)
+                    if fp:
+                        label.set_fontproperties(fp)
+                        label.set_fontsize(fs)
+    else:
+        ax.set_xlabel("Glyph Position")
+
+    ax.set_xlim(-0.5, len(values) - 0.5)
+    if defined_ys:
+        top = max(defined_ys)
+        ax.set_ylim(0, top * 1.1 if top > 0 else 1.0)
+    ax.set_ylabel(ylabel)
+    ax.set_title(title, fontsize=12, fontweight="bold")
+    ax.grid(True, axis="y", alpha=0.2)
+
+    if has_bands:
+        for band, band_ax in zip(bands, band_axes):
+            _render_metadata_band(band_ax, band)
+        for band_ax in band_axes:
+            band_ax.tick_params(axis="x", labelbottom=False)
+
+        glyph_ax.set_yticks([])
+        glyph_ax.set_ylim(0, 1)
+        glyph_ax.patch.set_visible(False)
+        glyph_ax.tick_params(axis="x", labelbottom=False, labeltop=False, bottom=False, top=False)
+        for spine in glyph_ax.spines.values():
+            spine.set_visible(False)
+        glyph_ax.set_ylabel("Glyph", rotation=0, labelpad=40, va="center", fontsize=7, color="#94a3b8")
+        if text:
+            for glyph_idx, ch in enumerate(text):
+                fp, fs = _resolve_font(ch, fonts)
+                glyph_ax.text(
+                    glyph_idx, 0.5, ch,
+                    ha="center", va="center",
+                    fontsize=fs,
+                    fontproperties=fp,
+                    clip_on=True,
+                    transform=glyph_ax.get_xaxis_transform(),
+                )
+
+    if has_bands:
+        fig.subplots_adjust(hspace=0.08)
+    else:
+        fig.tight_layout()
+    plt.show()
+    return fig
